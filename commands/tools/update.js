@@ -1,103 +1,111 @@
 const { exec } = require('child_process')
-const settings = require('../../settings')
+
+const isAdmin = require('../../lib/isAdmin')
 const { getLang } = require('../../lib/lang')
 
-function isOwner(sender) {
-  const n = String(settings.ownerNumber || '').replace(/\D/g, '')
-  if (!n) return false
-  return String(sender || '').includes(n)
+function TXT(chatId) {
+  const ar = getLang(chatId) === 'ar'
+  return {
+    onlyGroup: ar ? '❌ الأمر ده للجروبات بس.' : '❌ This command can only be used in groups.',
+    needBotAdmin: ar ? '❌ لازم تخلي البوت أدمن الأول.' : '❌ Please make the bot an admin first.',
+    needSenderAdmin: ar ? '❌ الأمر ده للأدمن فقط.' : '❌ Only group admins can use this command.',
+
+    start: ar ? '⏳ جارِ تحديث EasyStep-BOT...' : '⏳ Updating EasyStep-BOT...',
+    p1: ar ? '🔄 جاري تنزيل التحديث... (30%)' : '🔄 Downloading update... (30%)',
+    p2: ar ? '📦 جاري تثبيت التحديث... (70%)' : '📦 Installing update... (70%)',
+    done: ar ? '✅ تم التحديث بنجاح.' : '✅ Update completed successfully.',
+    fail: ar ? '❌ فشل التحديث.' : '❌ Update failed.'
+  }
 }
 
-async function updateCommand(sock, message) {
-  const chatId = message.key.remoteJid
-  const sender = message.key.participant || message.key.remoteJid
-  const lang = getLang(chatId)
+async function safeReact(sock, chatId, key, emoji) {
+  if (!key) return
+  try {
+    await sock.sendMessage(chatId, { react: { text: emoji, key } })
+  } catch {}
+}
 
-  const TXT = {
-    en: {
-      react: '🔄',
-      onlyOwner: '❌ This command is for the owner only.',
-      start: '⏳ Updating EasyStep-BOT...',
-      p1: '🔄 Downloading update... (30%)',
-      p2: '📦 Installing update... (70%)',
-      done: '✅ Update completed successfully.',
-      fail: '❌ Update failed.'
-    },
-    ar: {
-      react: '🔄',
-      onlyOwner: '❌ الأمر ده للمالك فقط.',
-      start: '⏳ جارِ تحديث EasyStep-BOT...',
-      p1: '🔄 جاري تنزيل التحديث... (30%)',
-      p2: '📦 جاري تثبيت التحديث... (70%)',
-      done: '✅ تم التحديث بنجاح.',
-      fail: '❌ فشل التحديث.'
-    }
-  }
+async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin) {
+  if (!chatId) return
+  const T = TXT(chatId)
 
-  const T = TXT[lang] || TXT.en
-
-  if (!isOwner(sender)) {
-    await sock.sendMessage(chatId, { text: T.onlyOwner }, { quoted: message })
+  if (!chatId.endsWith('@g.us')) {
+    await safeReact(sock, chatId, message?.key, '❌')
+    await sock.sendMessage(chatId, { text: T.onlyGroup }, { quoted: message })
     return
   }
 
-  // React
-  await sock.sendMessage(chatId, {
-    react: { text: T.react, key: message.key }
-  }).catch(() => {})
+  const realSenderId = senderId || message?.key?.participant || chatId
+  const adminStatus = await isAdmin(sock, chatId, realSenderId).catch(() => null)
 
-  // Send initial message
+  if (!adminStatus?.isBotAdmin) {
+    await safeReact(sock, chatId, message?.key, '❌')
+    await sock.sendMessage(chatId, { text: T.needBotAdmin }, { quoted: message })
+    return
+  }
+
+  const senderAdmin = typeof isSenderAdmin === 'boolean' ? isSenderAdmin : !!adminStatus?.isSenderAdmin
+  if (!senderAdmin && !message?.key?.fromMe) {
+    await safeReact(sock, chatId, message?.key, '🚫')
+    await sock.sendMessage(chatId, { text: T.needSenderAdmin }, { quoted: message })
+    return
+  }
+
+  // react start
+  await safeReact(sock, chatId, message?.key, '🔄')
+
+  // send initial message
   const sent = await sock.sendMessage(
     chatId,
     { text: T.start },
     { quoted: message }
   )
 
-  // Fake progress (edit same message)
+  // fake progress (edit same message)
   setTimeout(() => {
-    sock.sendMessage(chatId, {
-      text: T.p1,
-      edit: sent.key
-    }).catch(() => {})
+    sock.sendMessage(chatId, { text: T.p1, edit: sent.key }).catch(() => {})
   }, 3000)
 
   setTimeout(() => {
-    sock.sendMessage(chatId, {
-      text: T.p2,
-      edit: sent.key
-    }).catch(() => {})
+    sock.sendMessage(chatId, { text: T.p2, edit: sent.key }).catch(() => {})
   }, 6000)
 
-  // Run update
-  exec('bash ./update.sh', { timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 }, async (err, stdout, stderr) => {
+  exec('bash ./update.sh', { timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 }, async (err) => {
     if (err) {
-      await sock.sendMessage(chatId, {
-        text: T.fail,
-        edit: sent.key
-      }).catch(() => {})
+      await safeReact(sock, chatId, message?.key, '❌')
+      await sock.sendMessage(chatId, { text: T.fail, edit: sent.key }).catch(() => {})
       return
     }
 
-    // Final edit
-    await sock.sendMessage(chatId, {
-      text: T.done,
-      edit: sent.key
-    }).catch(() => {})
-
+    await safeReact(sock, chatId, message?.key, '✅')
+    await sock.sendMessage(chatId, { text: T.done, edit: sent.key }).catch(() => {})
     setTimeout(() => process.exit(0), 1200)
   })
 }
 
 module.exports = {
   name: 'update',
-  aliases: ['upd', 'تحديث'],
+  commands: ['update'],
+  aliases: ['upd', 'upgrade'],
+
   category: {
-    ar: '👮‍♂️ أدمن الجروب',
-    en: '👮‍♂️ Group Admin'
+    ar: '🤖 أدوات EasyStep',
+    en: '🤖 Easystep Tools'
+  },
+  description: {
+    ar: 'تحديث EasyStep-BOT وإعادة التشغيل.',
+    en: 'Update EasyStep-BOT and restart.'
+  },
+  usage: {
+    ar: '.update',
+    en: '.update'
   },
   emoji: '🔄',
   admin: true,
   owner: false,
   showInMenu: true,
-  exec: updateCommand
+
+  run: (sock, chatId, message, args) => handle(sock, chatId, message, args),
+  exec: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args),
+  execute: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args)
 }
