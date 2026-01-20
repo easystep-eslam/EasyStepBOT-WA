@@ -1,28 +1,88 @@
-# 🤖 EasyStep-BOT
+# EasyStepBOT-WA 🤖
 
-EasyStep-BOT is a WhatsApp bot built with the Baileys library to help manage WhatsApp groups efficiently.
-It supports multi-language (AR / EN), Admin & Owner permissions, and automatic command loading.
+A WhatsApp bot built with **Node.js** using **Baileys**.  
+Provides a structured command system, media support, and easy customization.
 
-## 👋 Welcome Card Template
+---
 
-The welcome image is generated locally (no external image API) using `sharp`.
+## ✨ Features
+- Organized and scalable command system
+- Media support (audio / video)
+- Clean project structure
+- Easy to customize and extend
+- Works with WhatsApp Linked Devices (Baileys)
 
-**Default template path:**
-- `assets/welcome_template.jpg`
+---
 
-**Optional template from your own API/CDN:**
-- Set `WELCOME_TEMPLATE_URL` in your `.env` (the image is downloaded and cached for 10 minutes).
+## 📁 Project Structure
+```
+EasyStepBOT-WA/
+│
+├── assets/        # Media files (audio / video)
+├── commands/      # Bot commands
+├── data/          # Data files
+├── lib/           # Helper and utility functions
+│
+├── main.js        # Main entry point
+├── config.js      # Bot configuration
+├── package.json
+└── README.md
+```
+
+---
+
+## ⚙️ Requirements
+- Node.js v18 or higher
+- npm
+- WhatsApp account with Linked Devices enabled
+
+---
 
 ## 🚀 Getting Started
 
-### Requirements
-- Node.js
-- Git
-
-### Installation
+1️⃣ Install dependencies:
 ```bash
-git clone <YOUR_REPOSITORY_URL>
-cd <PROJECT_FOLDER>
+npm install
+```
+
+2️⃣ Start the bot:
+```bash
+node main.js
+```
+
+3️⃣ Scan the QR Code using WhatsApp  
+(Settings → Linked Devices)
+
+---
+
+## 🧩 Commands
+- Each command is located inside the `commands/` folder
+- One file = one command
+- Commands can be easily added or modified
+
+---
+
+## 🛠️ Configuration
+- Edit bot settings in `config.js`
+- Add media files inside `assets/`
+- Helper functions are located in `lib/`
+
+---
+
+## ⚠️ Notes
+- Avoid sharing session or authentication files
+- Protect any sensitive data if used
+- This project is intended for personal or educational use
+
+---
+
+## 📌 Additional Info
+This repository will be set to **Private** after development is completed.
+
+---
+
+## 🧑‍💻 Author
+**EasyStep**
 npm install
 node index.js
 ```
