@@ -1,6 +1,6 @@
 const settings = {
   packname: 'EasyStep-BOT',
-  prefix: '!',
+  prefix: '.',
   author: 'LRM',
   botName: "EasyStep-BOT",
   botOwner: 'Eslam',
