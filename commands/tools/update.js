@@ -14,6 +14,7 @@ function TXT(chatId) {
     p1: ar ? '🔄 جاري تنزيل التحديث... (30%)' : '🔄 Downloading update... (30%)',
     p2: ar ? '📦 جاري تثبيت التحديث... (70%)' : '📦 Installing update... (70%)',
     done: ar ? '✅ تم التحديث بنجاح.' : '✅ Update completed successfully.',
+    restart: ar ? '♻️ جارِ إعادة التشغيل...' : '♻️ Restarting...',
     fail: ar ? '❌ فشل التحديث.' : '❌ Update failed.'
   }
 }
@@ -29,6 +30,7 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
   if (!chatId) return
   const T = TXT(chatId)
 
+  // Groups only
   if (!chatId.endsWith('@g.us')) {
     await safeReact(sock, chatId, message?.key, '❌')
     await sock.sendMessage(chatId, { text: T.onlyGroup }, { quoted: message })
@@ -44,24 +46,28 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
     return
   }
 
-  const senderAdmin = typeof isSenderAdmin === 'boolean' ? isSenderAdmin : !!adminStatus?.isSenderAdmin
+  const senderAdmin =
+    typeof isSenderAdmin === 'boolean'
+      ? isSenderAdmin
+      : !!adminStatus?.isSenderAdmin
+
   if (!senderAdmin && !message?.key?.fromMe) {
     await safeReact(sock, chatId, message?.key, '🚫')
     await sock.sendMessage(chatId, { text: T.needSenderAdmin }, { quoted: message })
     return
   }
 
-  // react start
+  // React start
   await safeReact(sock, chatId, message?.key, '🔄')
 
-  // send initial message
+  // Send initial message
   const sent = await sock.sendMessage(
     chatId,
     { text: T.start },
     { quoted: message }
   )
 
-  // fake progress (edit same message)
+  // Fake progress (edit same message)
   setTimeout(() => {
     sock.sendMessage(chatId, { text: T.p1, edit: sent.key }).catch(() => {})
   }, 3000)
@@ -70,17 +76,34 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
     sock.sendMessage(chatId, { text: T.p2, edit: sent.key }).catch(() => {})
   }, 6000)
 
-  exec('bash ./update.sh', { timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 }, async (err) => {
-    if (err) {
-      await safeReact(sock, chatId, message?.key, '❌')
-      await sock.sendMessage(chatId, { text: T.fail, edit: sent.key }).catch(() => {})
-      return
-    }
+  // Run update script
+  exec(
+    'bash ./update.sh',
+    { timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 },
+    async (err) => {
+      if (err) {
+        await safeReact(sock, chatId, message?.key, '❌')
+        await sock
+          .sendMessage(chatId, { text: T.fail, edit: sent.key })
+          .catch(() => {})
+        return
+      }
 
-    await safeReact(sock, chatId, message?.key, '✅')
-    await sock.sendMessage(chatId, { text: T.done, edit: sent.key }).catch(() => {})
-    setTimeout(() => process.exit(0), 1200)
-  })
+      // Final message before restart
+      await safeReact(sock, chatId, message?.key, '♻️')
+      await sock
+        .sendMessage(chatId, {
+          text: `${T.done}\n${T.restart}`,
+          edit: sent.key
+        })
+        .catch(() => {})
+
+      // Give WhatsApp time to receive the edit
+      setTimeout(() => {
+        process.exit(0)
+      }, 3000)
+    }
+  )
 }
 
 module.exports = {
@@ -106,6 +129,8 @@ module.exports = {
   showInMenu: true,
 
   run: (sock, chatId, message, args) => handle(sock, chatId, message, args),
-  exec: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args),
-  execute: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args)
+  exec: (sock, message, args) =>
+    handle(sock, message?.key?.remoteJid, message, args),
+  execute: (sock, message, args) =>
+    handle(sock, message?.key?.remoteJid, message, args)
 }
