@@ -1,5 +1,4 @@
 const { exec } = require('child_process')
-
 const isAdmin = require('../../lib/isAdmin')
 const { getLang } = require('../../lib/lang')
 
@@ -13,8 +12,9 @@ function TXT(chatId) {
     start: ar ? '⏳ جارِ تحديث EasyStep-BOT...' : '⏳ Updating EasyStep-BOT...',
     p1: ar ? '🔄 جاري تنزيل التحديث... (30%)' : '🔄 Downloading update... (30%)',
     p2: ar ? '📦 جاري تثبيت التحديث... (70%)' : '📦 Installing update... (70%)',
+
     done: ar ? '✅ تم التحديث بنجاح.' : '✅ Update completed successfully.',
-    restart: ar ? '♻️ جارِ إعادة التشغيل...' : '♻️ Restarting...',
+    restart: ar ? '♻️ جارِ إعادة التشغيل...' : '♻️ Restarting now...',
     fail: ar ? '❌ فشل التحديث.' : '❌ Update failed.'
   }
 }
@@ -30,7 +30,7 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
   if (!chatId) return
   const T = TXT(chatId)
 
-  // Groups only
+  // لازم جروب
   if (!chatId.endsWith('@g.us')) {
     await safeReact(sock, chatId, message?.key, '❌')
     await sock.sendMessage(chatId, { text: T.onlyGroup }, { quoted: message })
@@ -57,48 +57,50 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
     return
   }
 
-  // React start
+  // بداية التحديث
   await safeReact(sock, chatId, message?.key, '🔄')
 
-  // Send initial message
   const sent = await sock.sendMessage(
     chatId,
     { text: T.start },
     { quoted: message }
-  )
+  ).catch(() => null)
 
-  // Fake progress (edit same message)
-  setTimeout(() => {
-    sock.sendMessage(chatId, { text: T.p1, edit: sent.key }).catch(() => {})
-  }, 3000)
+  if (!sent?.key) return
 
-  setTimeout(() => {
-    sock.sendMessage(chatId, { text: T.p2, edit: sent.key }).catch(() => {})
-  }, 6000)
+  // 30%
+  await sock.sendMessage(chatId, {
+    text: T.p1,
+    edit: sent.key
+  }).catch(() => {})
 
-  // Run update script
+  // تنفيذ التحديث
   exec(
     'bash ./update.sh',
     { timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 },
     async (err) => {
+
       if (err) {
-        await safeReact(sock, chatId, message?.key, '❌')
-        await sock
-          .sendMessage(chatId, { text: T.fail, edit: sent.key })
-          .catch(() => {})
+        await sock.sendMessage(chatId, {
+          text: T.fail,
+          edit: sent.key
+        }).catch(() => {})
         return
       }
 
-      // Final message before restart
-      await safeReact(sock, chatId, message?.key, '♻️')
-      await sock
-        .sendMessage(chatId, {
-          text: `${T.done}\n${T.restart}`,
-          edit: sent.key
-        })
-        .catch(() => {})
+      // 70%
+      await sock.sendMessage(chatId, {
+        text: T.p2,
+        edit: sent.key
+      }).catch(() => {})
 
-      // Give WhatsApp time to receive the edit
+      // الرسالة النهائية (مضمونة)
+      await sock.sendMessage(chatId, {
+        text: `${T.done}\n${T.restart}`,
+        edit: sent.key
+      }).catch(() => {})
+
+      // نسيب وقت للرسالة تثبت قبل الريستارت
       setTimeout(() => {
         process.exit(0)
       }, 3000)
@@ -109,15 +111,15 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
 module.exports = {
   name: 'update',
   commands: ['update'],
-  aliases: ['upd', 'upgrade'],
+  aliases: ['upd', 'upgrade', 'تحديث'],
 
   category: {
     ar: '🤖 أدوات EasyStep',
     en: '🤖 Easystep Tools'
   },
   description: {
-    ar: 'تحديث EasyStep-BOT وإعادة التشغيل.',
-    en: 'Update EasyStep-BOT and restart.'
+    ar: 'تحديث EasyStep-BOT من GitHub وإعادة التشغيل.',
+    en: 'Update EasyStep-BOT from GitHub and restart.'
   },
   usage: {
     ar: '.update',
@@ -128,9 +130,12 @@ module.exports = {
   owner: false,
   showInMenu: true,
 
-  run: (sock, chatId, message, args) => handle(sock, chatId, message, args),
+  run: (sock, chatId, message, args) =>
+    handle(sock, chatId, message, args),
+
   exec: (sock, message, args) =>
     handle(sock, message?.key?.remoteJid, message, args),
+
   execute: (sock, message, args) =>
     handle(sock, message?.key?.remoteJid, message, args)
 }
