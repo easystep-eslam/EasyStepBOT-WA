@@ -6,10 +6,13 @@ const { getLang } = require('../../lib/lang');
 const PMBLOCKER_PATH = path.join(process.cwd(), 'data', 'pmblocker.json');
 const PMBLOCKER_SENT_PATH = path.join(process.cwd(), 'data', 'pmblocker_sent.json');
 
-const DEFAULT_MSG_EN =
-  '⚠️ Direct messages are blocked!\nYou cannot DM this bot. Please contact the owner in group chats only.';
-const DEFAULT_MSG_AR =
-  '⚠️ الرسائل الخاصة مقفولة!\nمينفعش تبعت للبوت برايفت. تواصل مع الأدمن التاني اللي نزل المنشور ومعمول ليه منشن في الرساله.';
+const DEFAULT_PM_BLOCK_MSG =
+  '🚫 تنبيه: هذا الحساب مخصص للبوت داخل الجروبات فقط.\n' +
+  'برجاء التواصل مع الأدمن المذكور في المنشور الأساسي داخل الجروب.\n' +
+  '⚠️ سيتم حظر الرسائل الخاصة تلقائيًا.\n\n' +
+  '🚫 Notice: This account is dedicated to the bot in group chats only.\n' +
+  'Please contact the admin mentioned in the original group post.\n' +
+  '⚠️ Private messages will be blocked automatically.';
 
 async function safeReact(sock, chatId, key, emoji) {
   try {
@@ -29,9 +32,9 @@ function TT(chatId) {
         `pmblocker on  - enable DM blocking\n` +
         `pmblocker off - disable DM blocking\n` +
         `pmblocker status - show status\n` +
-        `pmblocker setmsg <message> - set warning message`,
+        `pmblocker setmsg <message> - set warning message (sent in private)`,
       status: (on, msg) =>
-        `🔒 PM Blocker: *${on ? 'ON' : 'OFF'}*\n\n📝 Message:\n${msg}`,
+        `🔒 PM Blocker: *${on ? 'ON' : 'OFF'}*\n\n📝 Message (sent in private):\n${msg}`,
       setMsgUsage: '📌 Usage: pmblocker setmsg <message>',
       msgUpdated: '✅ PM blocker message updated.',
       enabled: '✅ PM blocker enabled.',
@@ -44,9 +47,9 @@ function TT(chatId) {
         `pmblocker on  - تفعيل حظر الخاص\n` +
         `pmblocker off - إيقاف حظر الخاص\n` +
         `pmblocker status - عرض الحالة\n` +
-        `pmblocker setmsg <رسالة> - تغيير رسالة التحذير`,
+        `pmblocker setmsg <رسالة> - تغيير رسالة التحذير (اللي بتتبعت في الخاص)`,
       status: (on, msg) =>
-        `🔒 حظر الخاص: *${on ? 'ON' : 'OFF'}*\n\n📝 الرسالة:\n${msg}`,
+        `🔒 حظر الخاص: *${on ? 'ON' : 'OFF'}*\n\n📝 الرسالة (بتتبعت في الخاص):\n${msg}`,
       setMsgUsage: '📌 الاستخدام: pmblocker setmsg <رسالة>',
       msgUpdated: '✅ تم تحديث رسالة حظر الخاص.',
       enabled: '✅ تم تفعيل حظر الخاص.',
@@ -57,59 +60,46 @@ function TT(chatId) {
   return { lang, T: TXT[lang] || TXT.en };
 }
 
-function defaultMsgFor(lang) {
-  return lang === 'ar' ? DEFAULT_MSG_AR : DEFAULT_MSG_EN;
-}
-
 function normalizeJid(jid = '') {
-  // "2010...:12@s.whatsapp.net" -> "2010...@s.whatsapp.net"
   return String(jid).split(':')[0];
 }
 
-function readState(chatIdForLang) {
-  const lang = chatIdForLang ? getLang(chatIdForLang) : 'en';
-  const def = defaultMsgFor(lang);
-
+function readState() {
   try {
-    if (!fs.existsSync(PMBLOCKER_PATH)) return { enabled: false, message: def };
-
+    if (!fs.existsSync(PMBLOCKER_PATH)) {
+      return { enabled: false, message: DEFAULT_PM_BLOCK_MSG };
+    }
     const raw = fs.readFileSync(PMBLOCKER_PATH, 'utf8');
     const data = JSON.parse(raw || '{}') || {};
-
     return {
       enabled: !!data.enabled,
-      message:
-        typeof data.message === 'string' && data.message.trim() ? data.message.trim() : def
+      message: (typeof data.message === 'string' && data.message.trim())
+        ? data.message.trim()
+        : DEFAULT_PM_BLOCK_MSG
     };
   } catch {
-    return { enabled: false, message: def };
+    return { enabled: false, message: DEFAULT_PM_BLOCK_MSG };
   }
 }
 
-function writeState(chatIdForLang, enabled, message) {
+function writeState(enabled, message) {
   try {
-    const lang = chatIdForLang ? getLang(chatIdForLang) : 'en';
-    const def = defaultMsgFor(lang);
-
     const dir = path.dirname(PMBLOCKER_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-    const current = readState(chatIdForLang);
-
+    const current = readState();
     const payload = {
       enabled: !!enabled,
-      message:
-        typeof message === 'string' && message.trim()
-          ? message.trim()
-          : (current.message || def)
+      message: (typeof message === 'string' && message.trim())
+        ? message.trim()
+        : (current.message || DEFAULT_PM_BLOCK_MSG)
     };
-
     fs.writeFileSync(PMBLOCKER_PATH, JSON.stringify(payload, null, 2));
   } catch {}
 }
 
 /* =========================
-   ✅ منع السبام: تخزين مين اتبعتله قبل كده
+   منع تكرار رسالة الخاص (حتى بعد Restart)
    ========================= */
 function readSentMap() {
   try {
@@ -130,6 +120,13 @@ function writeSentMap(map) {
   } catch {}
 }
 
+function wasSentBefore(senderJid) {
+  const s = normalizeJid(senderJid);
+  if (!s) return false;
+  const map = readSentMap();
+  return !!map[s];
+}
+
 function markSent(senderJid) {
   const s = normalizeJid(senderJid);
   if (!s) return;
@@ -138,47 +135,45 @@ function markSent(senderJid) {
   writeSentMap(map);
 }
 
-function wasSentBefore(senderJid) {
-  const s = normalizeJid(senderJid);
-  if (!s) return false;
-  const map = readSentMap();
-  return !!map[s];
-}
-
 /* =========================
-   ✅ ده المهم: Handler للخاص
+   ✅ Handler للخاص: رسالة واحدة (AR+EN) ثم Block
    ========================= */
 async function handleIncomingDM(sock, message) {
   try {
     const chatId = message?.key?.remoteJid;
     if (!chatId) return false;
 
-    // ✅ تجاهل رسائل البوت نفسه (ده يمنع الـ Loop والسبام)
+    // تجاهل رسائل البوت نفسه
     if (message?.key?.fromMe) return false;
 
-    // ✅ اشتغل على الخاص فقط
+    // الخاص فقط
     if (chatId.endsWith('@g.us')) return false;
 
-    const state = readState(chatId);
+    const state = readState();
     if (!state.enabled) return false;
 
     const senderJid = normalizeJid(message?.key?.participant || message?.key?.remoteJid);
+    if (!senderJid) return false;
 
-    // ✅ السماح للأونر/سودو في الخاص (لو حابب تمنعهم برضه شيل الشرط ده)
+    // لو Owner/Sudo، سيبه (اختياري)
     const okOwner = await isOwnerOrSudo(senderJid, sock, chatId).catch(() => false);
     if (okOwner) return false;
 
-    // ✅ رسالة واحدة فقط لكل رقم (حتى بعد الريستارت)
+    // رسالة واحدة فقط لكل رقم
     if (wasSentBefore(senderJid)) return true;
-
-    // ابعت التحذير (بدون quoted علشان مايبانش “كانه هو اللي بيبعت”)
-    await sock.sendMessage(chatId, { text: state.message }).catch(() => {});
     markSent(senderJid);
 
-    // ✅ بعدها اعمل Block
-    await sock.updateBlockStatus(senderJid, 'block').catch(() => {});
+    // ابعت الرسالة (بدون quoted)
+    await sock.sendMessage(chatId, { text: state.message }).catch(() => {});
 
-    return true; // اتعاملنا مع الرسالة
+    // اعمل Block بعد لحظة عشان الرسالة توصل
+    setTimeout(async () => {
+      try {
+        await sock.updateBlockStatus(senderJid, 'block');
+      } catch {}
+    }, 800);
+
+    return true;
   } catch {
     return false;
   }
@@ -217,10 +212,10 @@ async function pmblockerCommand(sock, message, args = []) {
     let list = Array.isArray(args) ? args : [];
     if (!list.length) list = parseArgsFromText(message);
 
-    let sub = String(list[0] || '').toLowerCase();
+    const sub = String(list[0] || '').toLowerCase();
     const rest = list.slice(1).join(' ').trim();
 
-    const state = readState(chatId);
+    const state = readState();
 
     if (!sub || !['on', 'off', 'status', 'setmsg'].includes(sub)) {
       await sock.sendMessage(chatId, { text: T.help }, { quoted: message });
@@ -237,14 +232,14 @@ async function pmblockerCommand(sock, message, args = []) {
         await sock.sendMessage(chatId, { text: T.setMsgUsage }, { quoted: message });
         return;
       }
-      writeState(chatId, state.enabled, rest);
+      writeState(state.enabled, rest);
       await safeReact(sock, chatId, message.key, '✅');
       await sock.sendMessage(chatId, { text: T.msgUpdated }, { quoted: message });
       return;
     }
 
     const enable = sub === 'on';
-    writeState(chatId, enable, null);
+    writeState(enable, null);
 
     await safeReact(sock, chatId, message.key, enable ? '✅' : '❌');
     await sock.sendMessage(chatId, { text: enable ? T.enabled : T.disabled }, { quoted: message });
@@ -280,7 +275,6 @@ module.exports = {
   run: pmblockerCommand,
   execute: pmblockerCommand,
 
-  // exports
   pmblockerCommand,
   readState,
   writeState,
