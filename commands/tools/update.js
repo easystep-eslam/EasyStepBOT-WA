@@ -13,7 +13,7 @@ function TXT(chatId) {
     needSenderAdmin: ar ? '❌ الأمر ده للأدمن فقط.' : '❌ Only group admins can use this command.',
 
     starting: ar ? '⏳ جارِ تحديث EasyStep-BOT...' : '⏳ Updating EasyStep-BOT...',
-    progress: (p) => (ar ? `🔄 جاري تنزيل التحديث... (%${p})` : `🔄 Downloading update... (${p}%)`),
+    progress: (p) => (ar ? `🔄 جارِ تنزيل التحديث... (${p}%)` : `🔄 Downloading update... (${p}%)`),
 
     done1: ar ? '✅ تم التحديث بنجاح.' : '✅ Update completed successfully.',
     done2: ar ? '♻️ جارِ إعادة التشغيل...' : '♻️ Restarting...',
@@ -38,17 +38,21 @@ async function editText(sock, chatId, keyToEdit, text) {
 }
 
 function stopIndexWatcherBeforeUpdate() {
-  // index.js عندك عامل fs.watchFile(__filename) وده بيعمل reload أثناء git pull
-  // هنا بنوقفه قبل التحديث عشان مايحصلش restart عند 30%
   try {
     const entry =
       (require.main && require.main.filename) ||
       process.argv[1] ||
       path.join(process.cwd(), 'index.js')
 
-    if (entry) {
-      fs.unwatchFile(entry)
-    }
+    if (entry) fs.unwatchFile(entry)
+  } catch {}
+}
+
+function writePendingAnnounce(chatId) {
+  try {
+    const p = path.join(process.cwd(), 'data', 'pending_update_announce.json')
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, JSON.stringify({ chatId }, null, 2))
   } catch {}
 }
 
@@ -80,11 +84,9 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
 
   await safeReact(sock, chatId, message?.key, '🔄')
 
-  // رسالة واحدة هنعدلها (progress وهمي)
   const sent = await sock.sendMessage(chatId, { text: T.starting }, { quoted: message }).catch(() => null)
   const editKey = sent?.key
 
-  // وقف watcher بتاع index.js قبل ما يبدأ التحديث
   stopIndexWatcherBeforeUpdate()
 
   let p = 10
@@ -110,10 +112,11 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
 
     await safeReact(sock, chatId, message?.key, '✅')
 
-    // عدّل نفس الرسالة لنجاح + ريستارت
     await editText(sock, chatId, editKey, `${T.done1}\n${T.done2}`)
 
-    // ادي وقت للرسالة تتبعت/تتعدل وبعدين اخرج عشان Pterodactyl يعيد التشغيل
+    // مهم: ده اللي بيخلّي الإعلان بعد الريستارت يشتغل
+    writePendingAnnounce(chatId)
+
     setTimeout(() => process.exit(0), 2000)
   })
 }
