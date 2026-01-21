@@ -14,17 +14,19 @@ cp -r session .backup_update/ 2>/dev/null || true
 cp -r modules .backup_update/ 2>/dev/null || true
 cp baileys_store.json .backup_update/ 2>/dev/null || true
 
-# ✅ تحديث فوق الموجود بدون حذف (تجنب Permission denied)
+# ✅ تحديث فوق الموجود بدون حذف + استثناء data/session/modules/node_modules/.git
+# ✅ + استثناء assets/kyc لتفادي Permission denied نهائيًا
 tar -C .newrepo \
   --exclude="./data" \
   --exclude="./session" \
   --exclude="./modules" \
   --exclude="./node_modules" \
   --exclude="./.git" \
+  --exclude="./assets/kyc" \
   -cf - . \
 | tar -C . --overwrite --no-same-owner -xf -
 
-# رجّع بياناتك الحساسة
+# رجّع بياناتك
 rm -rf data session modules 2>/dev/null || true
 cp -r .backup_update/data . 2>/dev/null || true
 cp -r .backup_update/session . 2>/dev/null || true
