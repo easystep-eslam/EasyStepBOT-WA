@@ -42,5 +42,3 @@ npm install --omit=dev
 rm -rf .newrepo .backup_update
 
 echo "✅ Update finished successfully"
-
-عدل
