@@ -1,31 +1,24 @@
-const fs = require('fs');
-const path = require('path');
-const { getLang } = require('../lib/lang');
-
-const UPDATE_MSG_PATH = path.join(process.cwd(), 'data', 'update_message.json');
-
-function buildUpdateMessage(chatId) {
-  const lang = getLang(chatId) === 'ar' ? 'ar' : 'en';
-
-  try {
-    if (!fs.existsSync(UPDATE_MSG_PATH)) return null;
-
-    const data = JSON.parse(fs.readFileSync(UPDATE_MSG_PATH, 'utf8'));
-    const cfg = data?.[lang];
-    if (!cfg) return null;
-
-    const lines = [];
-    if (cfg.title) lines.push(cfg.title);
-    if (cfg.header) lines.push('\n' + cfg.header);
-
-    if (Array.isArray(cfg.points)) {
-      for (const p of cfg.points) {
-        lines.push(`• ${p}`);
-      }
-    }
-
-    return lines.join('\n');
-  } catch {
-    return null;
+{
+  "ar": {
+    "title": "🤖 EasyStep-BOT — Update",
+    "header": "🆕 التحديثات الجديدة:",
+    "points": [
+      "تحسين إدارة الرسائل الخاصة ومنع السبام نهائيًا مع حظر العضو تلقائيًا",
+      "تحسين أوامر الإدارة وتقليل الضغط على البوت",
+      "إضافة أمر جديد: نظام السحب الذكي من التفاعلات على رسالة محددة مع فائز مختلف في كل مرة",
+      "تحسين إدارة الذاكرة ورفع مستوى الاستقرار",
+      "إصلاحات عامة وتحسينات في الأداء"
+    ]
+  },
+  "en": {
+    "title": "🤖 EasyStep-BOT — Update",
+    "header": "🆕 What's New:",
+    "points": [
+      "Improved private message management with full spam prevention and automatic blocking",
+      "Optimized admin commands to reduce bot load",
+      "Added a new feature: smart reaction raffle on a specific message with a unique winner each time",
+      "Improved memory management and overall stability",
+      "General fixes and performance improvements"
+    ]
   }
 }
