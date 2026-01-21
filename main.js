@@ -1,3 +1,30 @@
+
+function normalizeJid(jid = '') {
+  return String(jid).split(':')[0];
+}
+
+async function shouldDeleteMutedMessage(msg) {
+  if (!muteuser?.readDB) return false;
+
+  const chatId = msg?.key?.remoteJid;
+  if (!chatId || !chatId.endsWith('@g.us')) return false;
+  if (msg?.key?.fromMe) return false;
+
+  const sender = normalizeJid(msg?.key?.participant);
+  if (!sender) return false;
+
+  const db = muteuser.readDB();
+  const group = db?.[chatId];
+  if (!group || !group[sender]) return false;
+
+  const until = group[sender]?.until || 0;
+  if (until <= Date.now()) return false;
+
+  return true;
+}
+let muteuser = null;
+try { muteuser = require('./commands/tools/muteuser'); } catch {}
+
 // main.js (refactored)
 
 // EasyStep-BOT
@@ -694,9 +721,18 @@ if (msg.key?.fromMe && !text.startsWith(settings.prefix || '.')) {
 
   }
 
-  const body = getText(msg).trim();
+  
+  // 🔇 muteuser (fake mute): delete messages silently
+  try {
+    if (await shouldDeleteMutedMessage(msg)) {
+      await sock.sendMessage(msg.key.remoteJid, { delete: msg.key }).catch(() => {});
+      return;
+    }
+  } catch {}
 
+  const body = getText(msg).trim();
   if (!body) return;
+
 
   // Baileys buttons
 
