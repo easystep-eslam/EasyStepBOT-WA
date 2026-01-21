@@ -112,7 +112,7 @@ async function hidetagCommand(sock, message, args = []) {
 
   try {
     try {
-      await sock.sendMessage(chatId, { react: { text: '👀', key: message.key } });
+      await sock.sendMessage(chatId, { react: { text: '🗣', key: message.key } });
     } catch {}
 
     if (!chatId.endsWith('@g.us')) {
