@@ -79,9 +79,6 @@ function _rrHandleReactionMessage(msg) {
 
 // EasyStep-BOT
 
-
-const path = require('path');
-
 const moment = require('moment-timezone');
 
 // ================================
