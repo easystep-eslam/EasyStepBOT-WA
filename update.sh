@@ -2,43 +2,36 @@
 set -e
 
 echo "⏳ Starting update..."
-
 cd /home/container
 
-if [ -d ".newrepo" ]; then
-rm -rf .newrepo
-fi
+rm -rf .newrepo 2>/dev/null || true
+git clone --depth=1 https://github.com/easystep-eslam/EasyStepBOT-WA.git .newrepo
 
-git clone https://github.com/easystep-eslam/EasyStepBOT-WA.git .newrepo
-
-احفظ البيانات المهمة
-
+rm -rf .backup_update 2>/dev/null || true
 mkdir -p .backup_update
 cp -r data .backup_update/ 2>/dev/null || true
 cp -r session .backup_update/ 2>/dev/null || true
+cp -r modules .backup_update/ 2>/dev/null || true
 cp baileys_store.json .backup_update/ 2>/dev/null || true
 
-انسخ كل حاجة ما عدا data و session و node_modules
+# ✅ تحديث فوق الموجود بدون حذف (تجنب Permission denied)
+tar -C .newrepo \
+  --exclude="./data" \
+  --exclude="./session" \
+  --exclude="./modules" \
+  --exclude="./node_modules" \
+  --exclude="./.git" \
+  -cf - . \
+| tar -C . --overwrite --no-same-owner -xf -
 
-for item in .newrepo/* .newrepo/.*; do
-name=$(basename "$item")
-if [ "$name" = "." ] || [ "$name" = ".." ] || \
-[ "$name" = "data" ] || [ "$name" = "session" ] || \
-[ "$name" = "node_modules" ]; then
-continue
-fi
-rm -rf "$name"
-cp -r "$item" .
-done
-
-رجّع البيانات
-
+# رجّع بياناتك الحساسة
+rm -rf data session modules 2>/dev/null || true
 cp -r .backup_update/data . 2>/dev/null || true
 cp -r .backup_update/session . 2>/dev/null || true
+cp -r .backup_update/modules . 2>/dev/null || true
 cp .backup_update/baileys_store.json . 2>/dev/null || true
 
 npm install --omit=dev
 
-rm -rf .newrepo .backup_update
-
+rm -rf .newrepo .backup_update 2>/dev/null || true
 echo "✅ Update finished successfully"
