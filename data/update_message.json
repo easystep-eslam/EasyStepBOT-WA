@@ -1,24 +1,5 @@
 {
-  "ar": {
-    "title": "🤖 EasyStep-BOT — Update",
-    "header": "🆕 التحديثات الجديدة:",
-    "points": [
-      "تحسين إدارة الرسائل الخاصة ومنع السبام نهائيًا مع حظر العضو تلقائيًا",
-      "تحسين أوامر الإدارة وتقليل الضغط على البوت",
-      "إضافة أمر جديد: نظام السحب الذكي من التفاعلات على رسالة محددة مع فائز مختلف في كل مرة",
-      "تحسين إدارة الذاكرة ورفع مستوى الاستقرار",
-      "إصلاحات عامة وتحسينات في الأداء"
-    ]
-  },
-  "en": {
-    "title": "🤖 EasyStep-BOT — Update",
-    "header": "🆕 What's New:",
-    "points": [
-      "Improved private message management with full spam prevention and automatic blocking",
-      "Optimized admin commands to reduce bot load",
-      "Added a new feature: smart reaction raffle on a specific message with a unique winner each time",
-      "Improved memory management and overall stability",
-      "General fixes and performance improvements"
-    ]
-  }
+  "key": "2026-01-21",
+  "ar": "🤖 EasyStep-BOT — Update\n\n🆕 التحديثات الجديدة:\n• تحسين إدارة الرسائل الخاصة ومنع السبام نهائيًا وحظر العضو\n• تحسين أوامر الإدارة وتقليل الضغط على البوت\n• إضافة نظام السحب الذكي من التفاعلات على رسالة معينة (.تفاعل / .سحب) مع فائز مختلف في كل مرة\n• تحسين إدارة الذاكرة ورفع مستوى الاستقرار\n• إصلاحات عامة وتحسينات في الأداء",
+  "en": "🤖 EasyStep-BOT — Update\n\n🆕 What's new:\n• Improved private messages handling (no spam) + auto-block\n• Optimized admin tools and reduced bot load\n• Added smart reaction raffle (.تفاعل / .سحب) with a different winner each draw\n• Better memory management and stability\n• General fixes and performance improvements"
 }
