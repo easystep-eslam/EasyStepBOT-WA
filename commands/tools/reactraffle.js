@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const isAdmin = require('../lib/isAdmin');
-const { getLang } = require('../lib/lang');
+const isAdmin = require('../../lib/isAdmin');
+const { getLang } = require('../../lib/lang');
 
 const DB_PATH = path.join(process.cwd(), 'data', 'reactraffles.json');
 
