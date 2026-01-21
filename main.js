@@ -1,29 +1,79 @@
+// ===== React Raffle (tools/reactraffle) =====
+const fs = require('fs');
+const path = require('path');
 
-function normalizeJid(jid = '') {
+const _RR_DB_PATH = path.join(process.cwd(), 'data', 'reactraffles.json');
+
+function _rrNormalizeJid(jid = '') {
   return String(jid).split(':')[0];
 }
 
-async function shouldDeleteMutedMessage(msg) {
-  if (!muteuser?.readDB) return false;
-
-  const chatId = msg?.key?.remoteJid;
-  if (!chatId || !chatId.endsWith('@g.us')) return false;
-  if (msg?.key?.fromMe) return false;
-
-  const sender = normalizeJid(msg?.key?.participant);
-  if (!sender) return false;
-
-  const db = muteuser.readDB();
-  const group = db?.[chatId];
-  if (!group || !group[sender]) return false;
-
-  const until = group[sender]?.until || 0;
-  if (until <= Date.now()) return false;
-
-  return true;
+function _rrReadDB() {
+  try {
+    if (!fs.existsSync(_RR_DB_PATH)) return {};
+    return JSON.parse(fs.readFileSync(_RR_DB_PATH, 'utf8') || '{}') || {};
+  } catch {
+    return {};
+  }
 }
-let muteuser = null;
-try { muteuser = require('./commands/tools/muteuser'); } catch {}
+
+let _rrWriteTimer = null;
+let _rrPendingDB = null;
+
+function _rrScheduleWrite(db) {
+  _rrPendingDB = db;
+  if (_rrWriteTimer) return;
+  _rrWriteTimer = setTimeout(() => {
+    try {
+      const dir = path.dirname(_RR_DB_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(_RR_DB_PATH, JSON.stringify(_rrPendingDB || {}, null, 2));
+    } catch {}
+    _rrWriteTimer = null;
+    _rrPendingDB = null;
+  }, 800);
+}
+
+function _rrHandleReactionMessage(msg) {
+  try {
+    const chatId = msg?.key?.remoteJid;
+    if (!chatId || !chatId.endsWith('@g.us')) return false;
+
+    const r = msg?.message?.reactionMessage;
+    if (!r) return false;
+
+    const targetId = r?.key?.id;
+    const reactor = _rrNormalizeJid(msg?.key?.participant);
+    const emoji = (r?.text ?? '').trim(); // empty means removed in many baileys builds
+
+    if (!targetId || !reactor) return true; // it's a reaction but can't map -> stop normal flow
+
+    const db = _rrReadDB();
+    const raffle = db?.[chatId]?.[targetId];
+
+    if (!raffle || !raffle.active) return true; // reaction not for an active raffle -> ignore other processing
+
+    if (!Array.isArray(raffle.entries)) raffle.entries = [];
+    raffle.entries = raffle.entries.map(_rrNormalizeJid);
+
+    const idx = raffle.entries.indexOf(reactor);
+
+    if (!emoji) {
+      // removed reaction => remove from participants
+      if (idx !== -1) raffle.entries.splice(idx, 1);
+    } else {
+      // added/changed reaction => ensure participant exists
+      if (idx === -1) raffle.entries.push(reactor);
+    }
+
+    db[chatId][targetId] = raffle;
+    _rrScheduleWrite(db);
+    return true;
+  } catch {
+    return false;
+  }
+}
+// ===========================================
 
 // main.js (refactored)
 
@@ -34,9 +84,6 @@ const fs = require('fs');
 const path = require('path');
 
 const moment = require('moment-timezone');
-
-const { hasUpdate } = require('./lib/updateChecker');
-let __UPDATE_NOTIFY = new Map();
 
 // ================================
 
@@ -79,9 +126,6 @@ try { ({ addCommandReaction } = require('./lib/areact')); } catch {}
 let pmblocker = null;
 
 try { pmblocker = require('./commands/owner/pmblocker'); } catch {}
-
-const PMBLOCKER_WARNED = new Map();
-const PMBLOCKER_WARN_TTL = 60 * 1000;
 
 // ================================
 
@@ -473,24 +517,6 @@ async function runCommand({ sock, message, cmdName, args }) {
   // (the new command may start its own session later).
   try { ACTIVE_GAME_SESSIONS.delete(chatId); } catch {}
 
-  const langForUpdate = getLang(chatId)
-  const isUpdateCmd = ['update', 'checkupdate', 'cu', 'updatecheck', 'upd', 'upgrade'].includes(String(cmdName || '').toLowerCase())
-  if (!isUpdateCmd) {
-    const last = __UPDATE_NOTIFY.get(chatId) || 0
-    if (Date.now() - last > 30 * 60 * 1000) {
-      try {
-        const upd = await hasUpdate()
-        if (upd) {
-          __UPDATE_NOTIFY.set(chatId, Date.now())
-          const msgTxt = langForUpdate === 'ar'
-            ? 'يوجد تحديث جديد للبوت ✅\nبرجاء استخدام (.update) للتحديث.'
-            : 'A new bot update is available ✅\nPlease use (.update) to update.'
-          await sock.sendMessage(chatId, { text: msgTxt }, { quoted: message }).catch(() => {})
-        }
-      } catch {}
-    }
-  }
-
   // Owner gate
 
   if (cmd.owner) {
@@ -653,23 +679,16 @@ async function handleMessages(sock, messageUpdate, _printLog = true) {
 
   const msg = messageUpdate?.messages?.[0];
 
+
+  // React Raffle: track reactions on active raffles
+  if (_rrHandleReactionMessage(msg)) return;
   if (!msg || !msg.message) return;
 
   // ✅ IMPORTANT: ignore bot's own outgoing messages to prevent loops
 
   // (Baileys can emit our sent messages back through upsert)
 
-  const text =
-    msg.message?.conversation ||
-    msg.message?.extendedTextMessage?.text ||
-    msg.message?.imageMessage?.caption ||
-    msg.message?.videoMessage?.caption ||
-    '';
-
-// Ignore bot automatic messages only (not commands)
-if (msg.key?.fromMe && !text.startsWith(settings.prefix || '.')) {
-    return;
-}
+  if (msg.key?.fromMe) return;
 
   const chatId = msg.key.remoteJid;
 
@@ -689,27 +708,11 @@ if (msg.key?.fromMe && !text.startsWith(settings.prefix || '.')) {
 
       if (state?.enabled) {
 
-        const okOwner = msg.key.fromMe || (await isOwnerOrSudo(senderId, sock, chatId));
+        const okOwner = msg.key.fromMe || await isOwnerOrSudo(senderId, sock, chatId);
 
         if (!okOwner) {
 
-          const now = Date.now();
-
-          const last = PMBLOCKER_WARNED.get(senderId) || 0;
-
-          if (now - last > PMBLOCKER_WARN_TTL) {
-
-            PMBLOCKER_WARNED.set(senderId, now);
-
-            await sock.sendMessage(chatId, { text: state.message || '' }).catch(() => {});
-
-            if (typeof sock.updateBlockStatus === 'function') {
-
-              await sock.updateBlockStatus(senderId, 'block').catch(() => {});
-
-            }
-
-          }
+          await sock.sendMessage(chatId, { text: state.message || '' }, { quoted: msg }).catch(() => {});
 
           return;
 
@@ -721,18 +724,9 @@ if (msg.key?.fromMe && !text.startsWith(settings.prefix || '.')) {
 
   }
 
-  
-  // 🔇 muteuser (fake mute): delete messages silently
-  try {
-    if (await shouldDeleteMutedMessage(msg)) {
-      await sock.sendMessage(msg.key.remoteJid, { delete: msg.key }).catch(() => {});
-      return;
-    }
-  } catch {}
-
   const body = getText(msg).trim();
-  if (!body) return;
 
+  if (!body) return;
 
   // Baileys buttons
 

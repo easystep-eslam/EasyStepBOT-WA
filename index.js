@@ -14,6 +14,7 @@ const axios = require('axios')
 
 const { handleMessages, handleGroupParticipantUpdate, handleStatus } = require('./main');
 
+const { announceUpdateIfNeeded } = require('./lib/updateAnnouncer');
 const PhoneNumber = require('awesome-phonenumber')
 
 const { imageToWebp, videoToWebp, writeExifImg, writeExifVid } = require('./lib/exif')
@@ -764,4 +765,8 @@ async function createPairCodeForInstance(instanceId, phoneNumberRaw) {
 
   return { alreadyPaired: false, code };
 
+
+
+                // ✅ Auto announce what's new after update (Hybrid: changelog.json -> git log)
+                try { await announceUpdateIfNeeded(XeonBotInc); } catch (e) { console.log('[updateAnnouncer]', e?.message || e); }
 }
