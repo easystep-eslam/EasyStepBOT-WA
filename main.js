@@ -79,7 +79,6 @@ function _rrHandleReactionMessage(msg) {
 
 // EasyStep-BOT
 
-const fs = require('fs');
 
 const path = require('path');
 
