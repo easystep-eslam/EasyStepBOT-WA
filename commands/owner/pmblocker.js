@@ -4,6 +4,7 @@ const isOwnerOrSudo = require('../../lib/isOwner');
 const { getLang } = require('../../lib/lang');
 
 const PMBLOCKER_PATH = path.join(process.cwd(), 'data', 'pmblocker.json');
+const PMBLOCKER_SENT_PATH = path.join(process.cwd(), 'data', 'pmblocker_sent.json');
 
 const DEFAULT_MSG_EN =
   '⚠️ Direct messages are blocked!\nYou cannot DM this bot. Please contact the owner in group chats only.';
@@ -60,6 +61,11 @@ function defaultMsgFor(lang) {
   return lang === 'ar' ? DEFAULT_MSG_AR : DEFAULT_MSG_EN;
 }
 
+function normalizeJid(jid = '') {
+  // "2010...:12@s.whatsapp.net" -> "2010...@s.whatsapp.net"
+  return String(jid).split(':')[0];
+}
+
 function readState(chatIdForLang) {
   const lang = chatIdForLang ? getLang(chatIdForLang) : 'en';
   const def = defaultMsgFor(lang);
@@ -100,6 +106,82 @@ function writeState(chatIdForLang, enabled, message) {
 
     fs.writeFileSync(PMBLOCKER_PATH, JSON.stringify(payload, null, 2));
   } catch {}
+}
+
+/* =========================
+   ✅ منع السبام: تخزين مين اتبعتله قبل كده
+   ========================= */
+function readSentMap() {
+  try {
+    if (!fs.existsSync(PMBLOCKER_SENT_PATH)) return {};
+    const raw = fs.readFileSync(PMBLOCKER_SENT_PATH, 'utf8');
+    const data = JSON.parse(raw || '{}') || {};
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeSentMap(map) {
+  try {
+    const dir = path.dirname(PMBLOCKER_SENT_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(PMBLOCKER_SENT_PATH, JSON.stringify(map || {}, null, 2));
+  } catch {}
+}
+
+function markSent(senderJid) {
+  const s = normalizeJid(senderJid);
+  if (!s) return;
+  const map = readSentMap();
+  map[s] = Date.now();
+  writeSentMap(map);
+}
+
+function wasSentBefore(senderJid) {
+  const s = normalizeJid(senderJid);
+  if (!s) return false;
+  const map = readSentMap();
+  return !!map[s];
+}
+
+/* =========================
+   ✅ ده المهم: Handler للخاص
+   ========================= */
+async function handleIncomingDM(sock, message) {
+  try {
+    const chatId = message?.key?.remoteJid;
+    if (!chatId) return false;
+
+    // ✅ تجاهل رسائل البوت نفسه (ده يمنع الـ Loop والسبام)
+    if (message?.key?.fromMe) return false;
+
+    // ✅ اشتغل على الخاص فقط
+    if (chatId.endsWith('@g.us')) return false;
+
+    const state = readState(chatId);
+    if (!state.enabled) return false;
+
+    const senderJid = normalizeJid(message?.key?.participant || message?.key?.remoteJid);
+
+    // ✅ السماح للأونر/سودو في الخاص (لو حابب تمنعهم برضه شيل الشرط ده)
+    const okOwner = await isOwnerOrSudo(senderJid, sock, chatId).catch(() => false);
+    if (okOwner) return false;
+
+    // ✅ رسالة واحدة فقط لكل رقم (حتى بعد الريستارت)
+    if (wasSentBefore(senderJid)) return true;
+
+    // ابعت التحذير (بدون quoted علشان مايبانش “كانه هو اللي بيبعت”)
+    await sock.sendMessage(chatId, { text: state.message }).catch(() => {});
+    markSent(senderJid);
+
+    // ✅ بعدها اعمل Block
+    await sock.updateBlockStatus(senderJid, 'block').catch(() => {});
+
+    return true; // اتعاملنا مع الرسالة
+  } catch {
+    return false;
+  }
 }
 
 function parseArgsFromText(message) {
@@ -198,7 +280,9 @@ module.exports = {
   run: pmblockerCommand,
   execute: pmblockerCommand,
 
+  // exports
   pmblockerCommand,
   readState,
-  writeState
+  writeState,
+  handleIncomingDM
 };
