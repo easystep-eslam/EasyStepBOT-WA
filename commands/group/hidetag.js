@@ -11,17 +11,31 @@ function ensureDir(dirPath) {
 }
 
 function getMsgText(message) {
+  const msg = message?.message || {};
   return (
-    message?.message?.conversation ||
-    message?.message?.extendedTextMessage?.text ||
-    message?.message?.imageMessage?.caption ||
-    message?.message?.videoMessage?.caption ||
+    msg?.conversation ||
+    msg?.extendedTextMessage?.text ||
+    msg?.imageMessage?.caption ||
+    msg?.videoMessage?.caption ||
+    msg?.documentMessage?.caption ||
     ''
   );
 }
 
+function getContextInfo(message) {
+  const msg = message?.message || {};
+  return (
+    msg?.extendedTextMessage?.contextInfo ||
+    msg?.imageMessage?.contextInfo ||
+    msg?.videoMessage?.contextInfo ||
+    msg?.documentMessage?.contextInfo ||
+    msg?.audioMessage?.contextInfo ||
+    {}
+  );
+}
+
 function getQuoted(message) {
-  const ctx = message?.message?.extendedTextMessage?.contextInfo || {};
+  const ctx = getContextInfo(message);
   const quoted = ctx?.quotedMessage || null;
   const participant = ctx?.participant || null;
   return { quoted, participant, ctx };
@@ -54,7 +68,10 @@ async function downloadMediaToTemp(mediaMsg, mediaType) {
     ext = docExt || ext;
   }
 
-  const filePath = path.join(tempDir, `hidetag_${Date.now()}_${Math.random().toString(16).slice(2)}${ext}`);
+  const filePath = path.join(
+    tempDir,
+    `hidetag_${Date.now()}_${Math.random().toString(16).slice(2)}${ext}`
+  );
   fs.writeFileSync(filePath, buffer);
   return filePath;
 }
@@ -138,39 +155,83 @@ async function hidetagCommand(sock, message, args = []) {
 
     const msgContent = message.message || {};
 
+    // If the command is sent with media (not as reply)
     if (msgContent.imageMessage && !quoted) {
       tempFile = await downloadMediaToTemp(msgContent.imageMessage, 'image');
       const originalCaption = msgContent.imageMessage.caption || userText || '';
-      content = { image: { url: tempFile }, caption: `${originalCaption}${visibleReplyLine}`.trim(), mentions };
+      content = {
+        image: { url: tempFile },
+        caption: `${originalCaption}${visibleReplyLine}`.trim(),
+        mentions
+      };
     } else if (msgContent.videoMessage && !quoted) {
       tempFile = await downloadMediaToTemp(msgContent.videoMessage, 'video');
       const originalCaption = msgContent.videoMessage.caption || userText || '';
-      content = { video: { url: tempFile }, mimetype: 'video/mp4', caption: `${originalCaption}${visibleReplyLine}`.trim(), mentions };
+      content = {
+        video: { url: tempFile },
+        mimetype: 'video/mp4',
+        caption: `${originalCaption}${visibleReplyLine}`.trim(),
+        mentions
+      };
     } else if (msgContent.documentMessage && !quoted) {
       tempFile = await downloadMediaToTemp(msgContent.documentMessage, 'document');
       const { fileName, mimetype } = getFileInfoFromDocument(msgContent.documentMessage);
-      const cap = (userText || '').trim() ? `${userText}${visibleReplyLine}`.trim() : `${visibleReplyLine}`.trim();
-      content = { document: { url: tempFile }, fileName, mimetype, caption: cap, mentions };
+      const cap = (userText || '').trim()
+        ? `${userText}${visibleReplyLine}`.trim()
+        : `${visibleReplyLine}`.trim();
+
+      content = {
+        document: { url: tempFile },
+        fileName,
+        mimetype,
+        caption: cap,
+        mentions
+      };
     } else if (quoted) {
+      // If the command is a reply to something
       if (quoted.imageMessage) {
         tempFile = await downloadMediaToTemp(quoted.imageMessage, 'image');
         const originalCaption = quoted.imageMessage.caption || userText || '';
-        content = { image: { url: tempFile }, caption: `${originalCaption}${visibleReplyLine}`.trim(), mentions };
+        content = {
+          image: { url: tempFile },
+          caption: `${originalCaption}${visibleReplyLine}`.trim(),
+          mentions
+        };
       } else if (quoted.videoMessage) {
         tempFile = await downloadMediaToTemp(quoted.videoMessage, 'video');
         const originalCaption = quoted.videoMessage.caption || userText || '';
-        content = { video: { url: tempFile }, mimetype: 'video/mp4', caption: `${originalCaption}${visibleReplyLine}`.trim(), mentions };
+        content = {
+          video: { url: tempFile },
+          mimetype: 'video/mp4',
+          caption: `${originalCaption}${visibleReplyLine}`.trim(),
+          mentions
+        };
       } else if (quoted.documentMessage) {
         tempFile = await downloadMediaToTemp(quoted.documentMessage, 'document');
         const { fileName, mimetype } = getFileInfoFromDocument(quoted.documentMessage);
-        const cap = (userText || '').trim() ? `${userText}${visibleReplyLine}`.trim() : `${visibleReplyLine}`.trim();
-        content = { document: { url: tempFile }, fileName, mimetype, caption: cap, mentions };
+        const cap = (userText || '').trim()
+          ? `${userText}${visibleReplyLine}`.trim()
+          : `${visibleReplyLine}`.trim();
+
+        content = {
+          document: { url: tempFile },
+          fileName,
+          mimetype,
+          caption: cap,
+          mentions
+        };
       } else {
-        const originalText = quoted.conversation || quoted.extendedTextMessage?.text || userText || '';
+        const originalText =
+          quoted.conversation ||
+          quoted.extendedTextMessage?.text ||
+          userText ||
+          '';
+
         const finalText = `${String(originalText || '').trim()}${visibleReplyLine}`.trim();
         content = { text: finalText || T.usage, mentions };
       }
     } else {
+      // Normal text usage
       if (!userText) {
         await sock.sendMessage(chatId, { text: T.usage }, { quoted: message });
         return;
@@ -179,8 +240,8 @@ async function hidetagCommand(sock, message, args = []) {
     }
 
     await sock.sendMessage(chatId, content, { quoted: message });
-    if (tempFile) cleanupLater(tempFile);
 
+    if (tempFile) cleanupLater(tempFile);
   } catch (err) {
     console.error('HIDETAG ERROR:', err?.message || err);
     await sock.sendMessage(chatId, { text: T.error }, { quoted: message });
@@ -203,7 +264,6 @@ module.exports = {
     en: '.hidetag <text> (or reply to a message)'
   },
   emoji: '🗣',
-
   admin: true,
   owner: false,
   showInMenu: true,
