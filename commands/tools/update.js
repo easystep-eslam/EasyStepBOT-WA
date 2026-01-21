@@ -1,10 +1,11 @@
 const { exec } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+const https = require('https')
 
 const isAdmin = require('../../lib/isAdmin')
 const { getLang } = require('../../lib/lang')
-const { broadcastChangelogToAllGroups } = require('../../lib/updateAnnouncer')
+
 function TXT(chatId) {
   const ar = getLang(chatId) === 'ar'
   return {
@@ -29,7 +30,6 @@ async function safeReact(sock, chatId, key, emoji) {
   } catch {}
 }
 
-// Baileys edit message helper
 async function editText(sock, chatId, keyToEdit, text) {
   if (!keyToEdit) return
   try {
@@ -52,8 +52,35 @@ function writePendingAnnounce(chatId) {
   try {
     const p = path.join(process.cwd(), 'data', 'pending_update_announce.json')
     fs.mkdirSync(path.dirname(p), { recursive: true })
-    fs.writeFileSync(p, JSON.stringify({ chatId }, null, 2))
+    fs.writeFileSync(p, JSON.stringify({ chatId, at: Date.now() }, null, 2))
   } catch {}
+}
+
+function downloadText(url) {
+  return new Promise((resolve, reject) => {
+    https
+      .get(url, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error('HTTP ' + res.statusCode))
+          res.resume()
+          return
+        }
+        let data = ''
+        res.setEncoding('utf8')
+        res.on('data', (chunk) => (data += chunk))
+        res.on('end', () => resolve(data))
+      })
+      .on('error', reject)
+  })
+}
+
+async function ensureLatestUpdateSh() {
+  const url = 'https://raw.githubusercontent.com/easystep-eslam/EasyStepBOT-WA/main/update.sh'
+  const sh = await downloadText(url)
+
+  const target = '/home/container/update.sh'
+  fs.writeFileSync(target, sh, 'utf8')
+  return target
 }
 
 async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin) {
@@ -98,27 +125,42 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
     editText(sock, chatId, editKey, T.progress(p)).catch(() => {})
   }, 900)
 
-  exec('bash ./update.sh', { timeout: 8 * 60 * 1000, maxBuffer: 1024 * 1024 }, async (err, stdout, stderr) => {
-    finished = true
-    clearInterval(tick)
+  // ✅ حمّل آخر update.sh من GitHub قبل التشغيل (يكسر الحلقة المقفولة)
+  let updatePath = '/home/container/update.sh'
+  try {
+    updatePath = await ensureLatestUpdateSh()
+  } catch (e) {
+    // لو فشل التحميل هنكمل باللي موجود
+  }
 
-    if (err) {
-      const details = String(stderr || err.message || '').trim().slice(0, 1200)
-      const msg = `${T.fail}${details ? `\n\n${details}` : ''}`
-      await safeReact(sock, chatId, message?.key, '❌')
-      await editText(sock, chatId, editKey, msg)
-      return
+  exec(
+    `bash ${updatePath}`,
+    {
+      cwd: '/home/container',
+      timeout: 8 * 60 * 1000,
+      maxBuffer: 1024 * 1024
+    },
+    async (err, stdout, stderr) => {
+      finished = true
+      clearInterval(tick)
+
+      if (err) {
+        const details = String(stderr || err.message || '').trim().slice(0, 1200)
+        const msg = `${T.fail}${details ? `\n\n${details}` : ''}`
+        await safeReact(sock, chatId, message?.key, '❌')
+        await editText(sock, chatId, editKey, msg)
+        return
+      }
+
+      await safeReact(sock, chatId, message?.key, '✅')
+      await editText(sock, chatId, editKey, `${T.done1}\n${T.done2}`)
+
+      // مهم: ده اللي بيخلّي الإعلان بعد الريستارت يشتغل (في main)
+      writePendingAnnounce(chatId)
+
+      setTimeout(() => process.exit(0), 2000)
     }
-
-    await safeReact(sock, chatId, message?.key, '✅')
-
-    await editText(sock, chatId, editKey, `${T.done1}\n${T.done2}`)
-
-    // مهم: ده اللي بيخلّي الإعلان بعد الريستارت يشتغل
-    writePendingAnnounce(chatId)
-
-    setTimeout(() => process.exit(0), 2000)
-  })
+  )
 }
 
 module.exports = {
@@ -146,4 +188,4 @@ module.exports = {
   run: (sock, chatId, message, args) => handle(sock, chatId, message, args),
   exec: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args),
   execute: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args)
-}
+    }
