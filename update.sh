@@ -5,37 +5,98 @@ echo "⏳ Starting update..."
 
 cd /home/container
 
-if [ -d ".newrepo" ]; then
-  rm -rf .newrepo
+NEWREPO=".newrepo"
+BACKUP=".backup_update"
+
+REPO_URL="https://github.com/easystep-eslam/EasyStepBOT-WA.git"
+
+# folders/files we MUST keep
+KEEP_DIRS="data session modules node_modules"
+KEEP_FILES="baileys_store.json"
+
+# تنظيف أي بقايا قديمة
+rm -rf "$NEWREPO" "$BACKUP"
+
+# clone
+git clone --depth=1 "$REPO_URL" "$NEWREPO"
+
+# Backup المهم (data + session + modules + baileys_store.json)
+mkdir -p "$BACKUP"
+
+if [ -d "data" ]; then
+  cp -r "data" "$BACKUP/" 2>/dev/null || true
 fi
 
-git clone https://github.com/easystep-eslam/EasyStepBOT-WA.git .newrepo
+if [ -d "session" ]; then
+  cp -r "session" "$BACKUP/" 2>/dev/null || true
+fi
 
-# احفظ البيانات المهمة
-mkdir -p .backup_update
-cp -r data .backup_update/ 2>/dev/null || true
-cp -r session .backup_update/ 2>/dev/null || true
-cp baileys_store.json .backup_update/ 2>/dev/null || true
+if [ -d "modules" ]; then
+  cp -r "modules" "$BACKUP/" 2>/dev/null || true
+fi
 
-# انسخ كل حاجة ما عدا data و session و node_modules
-for item in .newrepo/* .newrepo/.*; do
-  name=$(basename "$item")
-  if [ "$name" = "." ] || [ "$name" = ".." ] || \
-     [ "$name" = "data" ] || [ "$name" = "session" ] || \
-     [ "$name" = "node_modules" ]; then
-    continue
-  fi
-  rm -rf "$name"
-  cp -r "$item" .
+if [ -f "baileys_store.json" ]; then
+  cp "baileys_store.json" "$BACKUP/" 2>/dev/null || true
+fi
+
+# امسح كل ملفات المشروع الحالية ماعدا الحاجات اللي لازم تتساب
+# (ممنوع نقرب لـ data / session / modules / node_modules)
+for f in * .*; do
+  [ "$f" = "." ] && continue
+  [ "$f" = ".." ] && continue
+
+  # لو مش موجود أصلا تخطّى
+  [ -e "$f" ] || continue
+
+  case "$f" in
+    data|session|modules|node_modules) continue ;;
+    baileys_store.json) continue ;;
+  esac
+
+  rm -rf "$f"
 done
 
-# رجّع البيانات
-cp -r .backup_update/data . 2>/dev/null || true
-cp -r .backup_update/session . 2>/dev/null || true
-cp .backup_update/baileys_store.json . 2>/dev/null || true
+# انسخ محتوى repo الجديد (بدون data/session/modules/node_modules/.git)
+cd "$NEWREPO"
 
+for f in * .*; do
+  [ "$f" = "." ] && continue
+  [ "$f" = ".." ] && continue
+  [ -e "$f" ] || continue
+
+  case "$f" in
+    data|session|modules|node_modules|.git) continue ;;
+  esac
+
+  cp -r "$f" /home/container/
+done
+
+cd /home/container
+
+# Restore البيانات
+if [ -d "$BACKUP/data" ]; then
+  rm -rf "data"
+  cp -r "$BACKUP/data" .
+fi
+
+if [ -d "$BACKUP/session" ]; then
+  rm -rf "session"
+  cp -r "$BACKUP/session" .
+fi
+
+if [ -d "$BACKUP/modules" ]; then
+  rm -rf "modules"
+  cp -r "$BACKUP/modules" .
+fi
+
+if [ -f "$BACKUP/baileys_store.json" ]; then
+  cp "$BACKUP/baileys_store.json" .
+fi
+
+# Install deps
 npm install --omit=dev
 
-rm -rf .newrepo .backup_update
+# Cleanup
+rm -rf "$NEWREPO" "$BACKUP"
 
 echo "✅ Update finished successfully"
