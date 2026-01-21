@@ -4,7 +4,7 @@ const path = require('path')
 
 const isAdmin = require('../../lib/isAdmin')
 const { getLang } = require('../../lib/lang')
-
+const { broadcastChangelogToAllGroups } = require('../../lib/updateAnnouncer')
 function TXT(chatId) {
   const ar = getLang(chatId) === 'ar'
   return {
