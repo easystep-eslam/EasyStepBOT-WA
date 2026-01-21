@@ -1,146 +1,282 @@
-const { exec } = require('child_process')
-const fs = require('fs')
-const path = require('path')
+const fs = require('fs');
+const path = require('path');
+const isOwnerOrSudo = require('../../lib/isOwner');
+const { getLang } = require('../../lib/lang');
 
-const isAdmin = require('../../lib/isAdmin')
-const { getLang } = require('../../lib/lang')
+const PMBLOCKER_PATH = path.join(process.cwd(), 'data', 'pmblocker.json');
+const PMBLOCKER_SENT_PATH = path.join(process.cwd(), 'data', 'pmblocker_sent.json');
 
-function TXT(chatId) {
-  const ar = getLang(chatId) === 'ar'
-  return {
-    onlyGroup: ar ? '❌ الأمر ده للجروبات بس.' : '❌ This command can only be used in groups.',
-    needBotAdmin: ar ? '❌ لازم تخلي البوت أدمن الأول.' : '❌ Please make the bot an admin first.',
-    needSenderAdmin: ar ? '❌ الأمر ده للأدمن فقط.' : '❌ Only group admins can use this command.',
-
-    starting: ar ? '⏳ جارِ تحديث EasyStep-BOT...' : '⏳ Updating EasyStep-BOT...',
-    progress: (p) => (ar ? `🔄 جاري تنزيل التحديث... (%${p})` : `🔄 Downloading update... (${p}%)`),
-
-    done1: ar ? '✅ تم التحديث بنجاح.' : '✅ Update completed successfully.',
-    done2: ar ? '♻️ جارِ إعادة التشغيل...' : '♻️ Restarting...',
-
-    fail: ar ? '❌ فشل التحديث.' : '❌ Update failed.'
-  }
-}
+const DEFAULT_PM_BLOCK_MSG =
+  '🚫 تنبيه: هذا الحساب مخصص للبوت داخل الجروبات فقط.\n' +
+  'برجاء التواصل مع الأدمن المذكور في المنشور الأساسي داخل الجروب.\n' +
+  '⚠️ سيتم حظر الرسائل الخاصة تلقائيًا.\n\n' +
+  '🚫 Notice: This account is dedicated to the bot in group chats only.\n' +
+  'Please contact the admin mentioned in the original group post.\n' +
+  '⚠️ Private messages will be blocked automatically.';
 
 async function safeReact(sock, chatId, key, emoji) {
-  if (!key) return
   try {
-    await sock.sendMessage(chatId, { react: { text: emoji, key } })
+    if (!key) return;
+    await sock.sendMessage(chatId, { react: { text: emoji, key } });
   } catch {}
 }
 
-// Baileys edit message helper
-async function editText(sock, chatId, keyToEdit, text) {
-  if (!keyToEdit) return
-  try {
-    await sock.sendMessage(chatId, { text, edit: keyToEdit })
-  } catch {}
-}
+function TT(chatId) {
+  const lang = getLang(chatId);
 
-function stopIndexWatcherBeforeUpdate() {
-  // index.js عندك عامل fs.watchFile(__filename) وده بيعمل reload أثناء git pull
-  // هنا بنوقفه قبل التحديث عشان مايحصلش restart عند 30%
-  try {
-    const entry =
-      (require.main && require.main.filename) ||
-      process.argv[1] ||
-      path.join(process.cwd(), 'index.js')
-
-    if (entry) {
-      fs.unwatchFile(entry)
+  const TXT = {
+    en: {
+      ownerOnly: '❌ Owner/Sudo only.',
+      help:
+        `📌 Usage:\n` +
+        `pmblocker on  - enable DM blocking\n` +
+        `pmblocker off - disable DM blocking\n` +
+        `pmblocker status - show status\n` +
+        `pmblocker setmsg <message> - set warning message (sent in private)`,
+      status: (on, msg) =>
+        `🔒 PM Blocker: *${on ? 'ON' : 'OFF'}*\n\n📝 Message (sent in private):\n${msg}`,
+      setMsgUsage: '📌 Usage: pmblocker setmsg <message>',
+      msgUpdated: '✅ PM blocker message updated.',
+      enabled: '✅ PM blocker enabled.',
+      disabled: '❌ PM blocker disabled.'
+    },
+    ar: {
+      ownerOnly: '❌ الأمر ده للأونر/سودو بس.',
+      help:
+        `📌 الاستخدام:\n` +
+        `pmblocker on  - تفعيل حظر الخاص\n` +
+        `pmblocker off - إيقاف حظر الخاص\n` +
+        `pmblocker status - عرض الحالة\n` +
+        `pmblocker setmsg <رسالة> - تغيير رسالة التحذير (اللي بتتبعت في الخاص)`,
+      status: (on, msg) =>
+        `🔒 حظر الخاص: *${on ? 'ON' : 'OFF'}*\n\n📝 الرسالة (بتتبعت في الخاص):\n${msg}`,
+      setMsgUsage: '📌 الاستخدام: pmblocker setmsg <رسالة>',
+      msgUpdated: '✅ تم تحديث رسالة حظر الخاص.',
+      enabled: '✅ تم تفعيل حظر الخاص.',
+      disabled: '❌ تم إيقاف حظر الخاص.'
     }
+  };
+
+  return { lang, T: TXT[lang] || TXT.en };
+}
+
+function normalizeJid(jid = '') {
+  return String(jid).split(':')[0];
+}
+
+function readState() {
+  try {
+    if (!fs.existsSync(PMBLOCKER_PATH)) {
+      return { enabled: false, message: DEFAULT_PM_BLOCK_MSG };
+    }
+    const raw = fs.readFileSync(PMBLOCKER_PATH, 'utf8');
+    const data = JSON.parse(raw || '{}') || {};
+    return {
+      enabled: !!data.enabled,
+      message: (typeof data.message === 'string' && data.message.trim())
+        ? data.message.trim()
+        : DEFAULT_PM_BLOCK_MSG
+    };
+  } catch {
+    return { enabled: false, message: DEFAULT_PM_BLOCK_MSG };
+  }
+}
+
+function writeState(enabled, message) {
+  try {
+    const dir = path.dirname(PMBLOCKER_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    const current = readState();
+    const payload = {
+      enabled: !!enabled,
+      message: (typeof message === 'string' && message.trim())
+        ? message.trim()
+        : (current.message || DEFAULT_PM_BLOCK_MSG)
+    };
+    fs.writeFileSync(PMBLOCKER_PATH, JSON.stringify(payload, null, 2));
   } catch {}
 }
 
-async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin) {
-  if (!chatId) return
-  const T = TXT(chatId)
-
-  if (!chatId.endsWith('@g.us')) {
-    await safeReact(sock, chatId, message?.key, '❌')
-    await sock.sendMessage(chatId, { text: T.onlyGroup }, { quoted: message })
-    return
+/* =========================
+   منع تكرار رسالة الخاص (حتى بعد Restart)
+   ========================= */
+function readSentMap() {
+  try {
+    if (!fs.existsSync(PMBLOCKER_SENT_PATH)) return {};
+    const raw = fs.readFileSync(PMBLOCKER_SENT_PATH, 'utf8');
+    const data = JSON.parse(raw || '{}') || {};
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
   }
+}
 
-  const realSenderId = senderId || message?.key?.participant || chatId
-  const adminStatus = await isAdmin(sock, chatId, realSenderId).catch(() => null)
+function writeSentMap(map) {
+  try {
+    const dir = path.dirname(PMBLOCKER_SENT_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(PMBLOCKER_SENT_PATH, JSON.stringify(map || {}, null, 2));
+  } catch {}
+}
 
-  if (!adminStatus?.isBotAdmin) {
-    await safeReact(sock, chatId, message?.key, '❌')
-    await sock.sendMessage(chatId, { text: T.needBotAdmin }, { quoted: message })
-    return
+function wasSentBefore(senderJid) {
+  const s = normalizeJid(senderJid);
+  if (!s) return false;
+  const map = readSentMap();
+  return !!map[s];
+}
+
+function markSent(senderJid) {
+  const s = normalizeJid(senderJid);
+  if (!s) return;
+  const map = readSentMap();
+  map[s] = Date.now();
+  writeSentMap(map);
+}
+
+/* =========================
+   ✅ Handler للخاص: رسالة واحدة (AR+EN) ثم Block
+   ========================= */
+async function handleIncomingDM(sock, message) {
+  try {
+    const chatId = message?.key?.remoteJid;
+    if (!chatId) return false;
+
+    // تجاهل رسائل البوت نفسه
+    if (message?.key?.fromMe) return false;
+
+    // الخاص فقط
+    if (chatId.endsWith('@g.us')) return false;
+
+    const state = readState();
+    if (!state.enabled) return false;
+
+    const senderJid = normalizeJid(message?.key?.participant || message?.key?.remoteJid);
+    if (!senderJid) return false;
+
+    // لو Owner/Sudo، سيبه (اختياري)
+    const okOwner = await isOwnerOrSudo(senderJid, sock, chatId).catch(() => false);
+    if (okOwner) return false;
+
+    // رسالة واحدة فقط لكل رقم
+    if (wasSentBefore(senderJid)) return true;
+    markSent(senderJid);
+
+    // ابعت الرسالة (بدون quoted)
+    await sock.sendMessage(chatId, { text: state.message }).catch(() => {});
+
+    // اعمل Block بعد لحظة عشان الرسالة توصل
+    setTimeout(async () => {
+      try {
+        await sock.updateBlockStatus(senderJid, 'block');
+      } catch {}
+    }, 800);
+
+    return true;
+  } catch {
+    return false;
   }
+}
 
-  const senderAdmin = typeof isSenderAdmin === 'boolean' ? isSenderAdmin : !!adminStatus?.isSenderAdmin
-  if (!senderAdmin && !message?.key?.fromMe) {
-    await safeReact(sock, chatId, message?.key, '🚫')
-    await sock.sendMessage(chatId, { text: T.needSenderAdmin }, { quoted: message })
-    return
-  }
+function parseArgsFromText(message) {
+  const rawText =
+    message.message?.conversation?.trim() ||
+    message.message?.extendedTextMessage?.text?.trim() ||
+    message.message?.imageMessage?.caption?.trim() ||
+    message.message?.videoMessage?.caption?.trim() ||
+    '';
 
-  await safeReact(sock, chatId, message?.key, '🔄')
+  const parts = String(rawText || '').trim().split(/\s+/);
+  return parts.slice(1);
+}
 
-  // رسالة واحدة هنعدلها (progress وهمي)
-  const sent = await sock.sendMessage(chatId, { text: T.starting }, { quoted: message }).catch(() => null)
-  const editKey = sent?.key
+async function pmblockerCommand(sock, message, args = []) {
+  const chatId = message?.key?.remoteJid;
+  if (!chatId) return;
 
-  // وقف watcher بتاع index.js قبل ما يبدأ التحديث
-  stopIndexWatcherBeforeUpdate()
+  const { T } = TT(chatId);
 
-  let p = 10
-  let finished = false
+  try {
+    await safeReact(sock, chatId, message.key, '🚫');
 
-  const tick = setInterval(() => {
-    if (finished) return
-    if (p < 90) p += 10
-    editText(sock, chatId, editKey, T.progress(p)).catch(() => {})
-  }, 900)
+    const senderId = message?.key?.participant || message?.key?.remoteJid;
+    const okOwner = message.key.fromMe || (await isOwnerOrSudo(senderId, sock, chatId));
 
-  exec('bash ./update.sh', { timeout: 8 * 60 * 1000, maxBuffer: 1024 * 1024 }, async (err, stdout, stderr) => {
-    finished = true
-    clearInterval(tick)
-
-    if (err) {
-      const details = String(stderr || err.message || '').trim().slice(0, 1200)
-      const msg = `${T.fail}${details ? `\n\n${details}` : ''}`
-      await safeReact(sock, chatId, message?.key, '❌')
-      await editText(sock, chatId, editKey, msg)
-      return
+    if (!okOwner) {
+      await safeReact(sock, chatId, message.key, '❌');
+      await sock.sendMessage(chatId, { text: T.ownerOnly }, { quoted: message });
+      return;
     }
 
-    await safeReact(sock, chatId, message?.key, '✅')
+    let list = Array.isArray(args) ? args : [];
+    if (!list.length) list = parseArgsFromText(message);
 
-    // عدّل نفس الرسالة لنجاح + ريستارت
-    await editText(sock, chatId, editKey, `${T.done1}\n${T.done2}`)
+    const sub = String(list[0] || '').toLowerCase();
+    const rest = list.slice(1).join(' ').trim();
 
-    // ادي وقت للرسالة تتبعت/تتعدل وبعدين اخرج عشان Pterodactyl يعيد التشغيل
-    setTimeout(() => process.exit(0), 2000)
-  })
+    const state = readState();
+
+    if (!sub || !['on', 'off', 'status', 'setmsg'].includes(sub)) {
+      await sock.sendMessage(chatId, { text: T.help }, { quoted: message });
+      return;
+    }
+
+    if (sub === 'status') {
+      await sock.sendMessage(chatId, { text: T.status(state.enabled, state.message) }, { quoted: message });
+      return;
+    }
+
+    if (sub === 'setmsg') {
+      if (!rest) {
+        await sock.sendMessage(chatId, { text: T.setMsgUsage }, { quoted: message });
+        return;
+      }
+      writeState(state.enabled, rest);
+      await safeReact(sock, chatId, message.key, '✅');
+      await sock.sendMessage(chatId, { text: T.msgUpdated }, { quoted: message });
+      return;
+    }
+
+    const enable = sub === 'on';
+    writeState(enable, null);
+
+    await safeReact(sock, chatId, message.key, enable ? '✅' : '❌');
+    await sock.sendMessage(chatId, { text: enable ? T.enabled : T.disabled }, { quoted: message });
+  } catch (e) {
+    console.error('[PMBLOCKER]', e?.stack || e);
+    await safeReact(sock, chatId, message?.key, '❌');
+    await sock.sendMessage(chatId, { text: TT(chatId).T.help }, { quoted: message }).catch(() => {});
+  }
 }
+
+/* =========  Metadata (DO NOT edit above this line)  ========= */
 
 module.exports = {
-  name: 'update',
-  commands: ['update'],
-  aliases: ['upd', 'upgrade'],
-
+  name: 'pmblocker',
+  aliases: ['pmblocker', 'pmblock', 'blockpm', 'حظر_الخاص', 'قفل_الخاص'],
   category: {
-    ar: '🤖 أدوات EasyStep',
-    en: '🤖 Easystep Tools'
+    ar: '👑 أوامر المالك',
+    en: '👑 Owner Commands'
   },
   description: {
-    ar: 'تحديث البوت من GitHub وإعادة التشغيل.',
-    en: 'Update the bot from GitHub and restart.'
+    ar: 'قفل/فتح استقبال رسائل الخاص للبوت وتعديل رسالة التحذير.',
+    en: 'Enable/disable bot DM blocking and edit the warning message.'
   },
   usage: {
-    ar: '.update',
-    en: '.update'
+    ar: 'pmblocker on/off/status | pmblocker setmsg <رسالة>',
+    en: 'pmblocker on/off/status | pmblocker setmsg <message>'
   },
-  emoji: '🔄',
-  admin: true,
-  owner: false,
+  admin: false,
+  owner: true,
   showInMenu: true,
+  emoji: '🚫',
+  exec: pmblockerCommand,
+  run: pmblockerCommand,
+  execute: pmblockerCommand,
 
-  run: (sock, chatId, message, args) => handle(sock, chatId, message, args),
-  exec: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args),
-  execute: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args)
-}
+  pmblockerCommand,
+  readState,
+  writeState,
+  handleIncomingDM
+};
