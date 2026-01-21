@@ -52,7 +52,9 @@ try { ({ addCommandReaction } = require('./lib/areact')); } catch {}
 let pmblocker = null;
 
 try { pmblocker = require('./commands/owner/pmblocker'); } catch {}
-const PMBLOCKER_SENT = new Set(); // avoid DM spam before block
+
+const PMBLOCKER_WARNED = new Map();
+const PMBLOCKER_WARN_TTL = 60 * 1000;
 
 // ================================
 
@@ -653,18 +655,43 @@ if (msg.key?.fromMe && !text.startsWith(settings.prefix || '.')) {
   const senderId = getSenderId(msg);
 
   if (!chatId.endsWith('@g.us') && pmblocker?.readState) {
-    const state = pmblocker.readState(chatId);
-    if (state?.enabled && !okOwner) {
-      // Send warning once, then block the user (avoid spam if they keep messaging)
-      if (!PMBLOCKER_SENT.has(chatId)) {
-        PMBLOCKER_SENT.add(chatId);
-        await sock.sendMessage(chatId, { text: state.message || '' }).catch(() => {});
+
+    try {
+
+      const state = pmblocker.readState(chatId);
+
+      if (state?.enabled) {
+
+        const okOwner = msg.key.fromMe || (await isOwnerOrSudo(senderId, sock, chatId));
+
+        if (!okOwner) {
+
+          const now = Date.now();
+
+          const last = PMBLOCKER_WARNED.get(senderId) || 0;
+
+          if (now - last > PMBLOCKER_WARN_TTL) {
+
+            PMBLOCKER_WARNED.set(senderId, now);
+
+            await sock.sendMessage(chatId, { text: state.message || '' }).catch(() => {});
+
+            if (typeof sock.updateBlockStatus === 'function') {
+
+              await sock.updateBlockStatus(senderId, 'block').catch(() => {});
+
+            }
+
+          }
+
+          return;
+
+        }
+
       }
-      setTimeout(() => {
-        sock.updateBlockStatus(chatId, 'block').catch(() => {});
-      }, 800);
-      return;
-    }
+
+    } catch {}
+
   }
 
   const body = getText(msg).trim();
