@@ -1,3 +1,60 @@
+// ===== Log Cleaner (hide noisy SessionEntry / key dumps) =====
+(() => {
+  const SENSITIVE_STR = [
+    'Closing session',
+    'SessionEntry',
+    'currentRatchet',
+    'ephemeralKeyPair',
+    'pendingPreKey',
+    'remoteIdentityKey',
+    'rootKey',
+    '_chains',
+    'baseKey',
+    'baseKeyType',
+    'preKeyId',
+    'registrationId'
+  ];
+
+  function hasSensitiveString(s) {
+    if (!s) return false;
+    const t = String(s);
+    return SENSITIVE_STR.some((k) => t.includes(k));
+  }
+
+  function hasSensitiveKeys(obj, depth = 0) {
+    if (!obj || typeof obj !== 'object') return false;
+    if (depth > 2) return false;
+
+    for (const k of Object.keys(obj)) {
+      if (SENSITIVE_STR.includes(k)) return true;
+    }
+
+    for (const v of Object.values(obj)) {
+      if (typeof v === 'string' && hasSensitiveString(v)) return true;
+      if (typeof v === 'object' && hasSensitiveKeys(v, depth + 1)) return true;
+    }
+    return false;
+  }
+
+  function shouldHide(args) {
+    for (const a of args) {
+      if (typeof a === 'string' && hasSensitiveString(a)) return true;
+      if (a && typeof a === 'object' && hasSensitiveKeys(a)) return true;
+    }
+    return false;
+  }
+
+  const _log = console.log.bind(console);
+  const _info = console.info.bind(console);
+  const _warn = console.warn.bind(console);
+  const _error = console.error.bind(console);
+
+  console.log = (...args) => { if (!shouldHide(args)) _log(...args); };
+  console.info = (...args) => { if (!shouldHide(args)) _info(...args); };
+  console.warn = (...args) => { if (!shouldHide(args)) _warn(...args); };
+  console.error = (...args) => { if (!shouldHide(args)) _error(...args); };
+})();
+// ============================================================
 require('./settings')
 
 const { Boom } = require('@hapi/boom')
@@ -14,7 +71,6 @@ const axios = require('axios')
 
 const { handleMessages, handleGroupParticipantUpdate, handleStatus } = require('./main');
 
-const { announceUpdateIfNeeded } = require('./lib/updateAnnouncer');
 const PhoneNumber = require('awesome-phonenumber')
 
 const { imageToWebp, videoToWebp, writeExifImg, writeExifVid } = require('./lib/exif')
@@ -22,6 +78,23 @@ const { imageToWebp, videoToWebp, writeExifImg, writeExifVid } = require('./lib/
 const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetch, await, sleep, reSize } = require('./lib/myfunc')
 
 const { getLang } = require('./lib/lang')
+
+// ===== Antilink runtime hook (loads if module exists) =====
+let handleLinkDetection = null;
+try {
+  ({ handleLinkDetection } = require('./commands/group/antilink'));
+} catch (e1) {
+  try {
+    ({ handleLinkDetection } = require('./commands/antilink'));
+  } catch (e2) {
+    try {
+      ({ handleLinkDetection } = require('./plugins/antilink'));
+    } catch (e3) {
+      handleLinkDetection = null;
+    }
+  }
+}
+
 
 const azanAuto = require('./lib/azanAuto')
 
@@ -236,6 +309,46 @@ async function startXeonBotInc() {
                     XeonBotInc.msgRetryCounterCache.clear()
 
                 }
+
+// ===== ANTI LINK CHECK (groups only) =====
+
+
+try {
+
+
+  if (typeof handleLinkDetection === 'function') {
+
+
+    const chatId = mek?.key?.remoteJid;
+
+
+    if (chatId && chatId.endsWith('@g.us') && !mek?.key?.fromMe) {
+
+
+      const senderId = mek?.key?.participant || mek?.key?.remoteJid;
+
+
+      await handleLinkDetection(XeonBotInc, chatId, mek, null, senderId);
+
+
+    }
+
+
+  }
+
+
+} catch (e) {
+
+
+  console.log('[ANTILINK UPSERT ERROR]', e?.message || e);
+
+
+}
+
+
+// =========================================
+
+
 
                 try {
 
@@ -765,8 +878,4 @@ async function createPairCodeForInstance(instanceId, phoneNumberRaw) {
 
   return { alreadyPaired: false, code };
 
-
-
-                // ✅ Auto announce what's new after update (Hybrid: changelog.json -> git log)
-                try { await announceUpdateIfNeeded(XeonBotInc); } catch (e) { console.log('[updateAnnouncer]', e?.message || e); }
 }
