@@ -6,6 +6,7 @@ const settings = {
   botOwner: 'Eslam',
   ownerNumber: '201065537938',
   giphyApiKey: 'qnl7ssQChTdPjsKta2Ax2LMaGXz303tq',
+  apiKey: "EasyStep",
   commandMode: "public",
   maxStoreMessages: 20,
   storeWriteInterval: 10000,
