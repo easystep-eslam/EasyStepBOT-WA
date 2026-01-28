@@ -1,6 +1,9 @@
-const axios = require('axios');
-const yts = require('yt-search');
-const { getLang } = require('../../lib/lang');
+const axios = require('axios')
+const yts = require('yt-search')
+const { getLang } = require('../../lib/lang')
+const getApi = require('../../lib/api')
+
+const api = getApi()
 
 const AXIOS_DEFAULTS = {
   timeout: 60000,
@@ -8,24 +11,24 @@ const AXIOS_DEFAULTS = {
     'User-Agent': 'Mozilla/5.0',
     Accept: 'application/json, text/plain, */*'
   }
-};
+}
 
 async function tryRequest(getter, attempts = 3) {
-  let lastError;
+  let lastError
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      return await getter();
+      return await getter()
     } catch (err) {
-      lastError = err;
-      if (attempt < attempts) await new Promise((r) => setTimeout(r, 1000 * attempt));
+      lastError = err
+      if (attempt < attempts) await new Promise((r) => setTimeout(r, 1000 * attempt))
     }
   }
-  throw lastError;
+  throw lastError
 }
 
 async function safeReact(sock, chatId, key, emoji) {
   try {
-    await sock.sendMessage(chatId, { react: { text: emoji, key } });
+    await sock.sendMessage(chatId, { react: { text: emoji, key } })
   } catch {}
 }
 
@@ -36,17 +39,17 @@ function getText(message) {
     message.message?.imageMessage?.caption ||
     message.message?.videoMessage?.caption ||
     ''
-  ).trim();
+  ).trim()
 }
 
 function pickChatId(chatIdArg, message) {
-  if (typeof chatIdArg === 'string' && chatIdArg.includes('@')) return chatIdArg;
-  const fromMsg = message?.key?.remoteJid || message?.chat;
-  return typeof fromMsg === 'string' ? fromMsg : null;
+  if (typeof chatIdArg === 'string' && chatIdArg.includes('@')) return chatIdArg
+  const fromMsg = message?.key?.remoteJid || message?.chat
+  return typeof fromMsg === 'string' ? fromMsg : null
 }
 
 function isYouTubeUrl(url = '') {
-  return /(?:youtube\.com\/watch\?v=|youtu\.be\/)/i.test(url);
+  return /(?:youtube\.com\/watch\?v=|youtu\.be\/)/i.test(url)
 }
 
 function safeTitle(name) {
@@ -54,38 +57,50 @@ function safeTitle(name) {
     .replace(/[\\/:*?"<>|]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 80);
+    .slice(0, 80)
+}
+
+async function getLolhumanVideoByUrl(youtubeUrl) {
+  const { data } = await api.get('/api/ytvideo2', { params: { url: youtubeUrl } })
+  const link = data?.result?.link
+  if (!link) throw new Error(data?.message || 'LoLHuman returned no link')
+  return {
+    download: link,
+    title: data?.result?.title,
+    thumbnail: data?.result?.thumbnail,
+    size: data?.result?.size
+  }
 }
 
 async function getYupraVideoByUrl(youtubeUrl) {
-  const apiUrl = `https://api.yupra.my.id/api/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`;
-  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
+  const apiUrl = `https://api.yupra.my.id/api/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`
+  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS))
   if (res?.data?.success && res?.data?.data?.download_url) {
     return {
       download: res.data.data.download_url,
       title: res.data.data.title
-    };
+    }
   }
-  throw new Error('Yupra failed');
+  throw new Error('Yupra failed')
 }
 
 async function getOkatsuVideoByUrl(youtubeUrl) {
-  const apiUrl = `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`;
-  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
+  const apiUrl = `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`
+  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS))
   if (res?.data?.result?.mp4) {
     return {
       download: res.data.result.mp4,
       title: res.data.result.title
-    };
+    }
   }
-  throw new Error('Okatsu failed');
+  throw new Error('Okatsu failed')
 }
 
 async function videoCommand(sock, message, args = []) {
-  const chatId = pickChatId(message?.key?.remoteJid, message);
-  if (!chatId) return;
+  const chatId = pickChatId(message?.key?.remoteJid, message)
+  if (!chatId) return
 
-  const lang = getLang(chatId);
+  const lang = getLang(chatId)
 
   const TXT = {
     en: {
@@ -104,56 +119,60 @@ async function videoCommand(sock, message, args = []) {
       downloaded: '𝗗𝗢𝗪𝗡𝗟𝗢𝗔𝗗𝗘𝗗 𝗕𝗬 𝗘𝗔𝗦𝗬𝗦𝗧𝗘𝗣-𝗕𝗢𝗧',
       failed: '❌ فشل التحميل، حاول تاني.'
     }
-  };
+  }
 
-  const T = TXT[lang] || TXT.en;
+  const T = TXT[lang] || TXT.en
 
   try {
-    await safeReact(sock, chatId, message.key, '🎬');
+    await safeReact(sock, chatId, message.key, '🎬')
 
-    let query = (Array.isArray(args) && args.length ? args.join(' ') : '').trim();
+    let query = (Array.isArray(args) && args.length ? args.join(' ') : '').trim()
 
     if (!query) {
-      const text = getText(message);
-      const used = (text.split(/\s+/)[0] || '.video').trim();
-      query = text.slice(used.length).trim();
+      const text = getText(message)
+      const used = (text.split(/\s+/)[0] || '.video').trim()
+      query = text.slice(used.length).trim()
     }
 
     if (!query) {
-      await sock.sendMessage(chatId, { text: T.usage }, { quoted: message });
-      return;
+      await sock.sendMessage(chatId, { text: T.usage }, { quoted: message })
+      return
     }
 
-    let videoUrl = '';
-    let videoTitle = '';
+    let videoUrl = ''
+    let videoTitle = ''
 
     if (/^https?:\/\//i.test(query)) {
       if (!isYouTubeUrl(query)) {
-        await sock.sendMessage(chatId, { text: T.invalid }, { quoted: message });
-        return;
+        await sock.sendMessage(chatId, { text: T.invalid }, { quoted: message })
+        return
       }
-      videoUrl = query;
+      videoUrl = query
     } else {
-      const search = await yts(query);
-      const first = search?.videos?.[0];
+      const search = await yts(query)
+      const first = search?.videos?.[0]
       if (!first?.url) {
-        await sock.sendMessage(chatId, { text: T.notFound }, { quoted: message });
-        return;
+        await sock.sendMessage(chatId, { text: T.notFound }, { quoted: message })
+        return
       }
-      videoUrl = first.url;
-      videoTitle = first.title || '';
+      videoUrl = first.url
+      videoTitle = first.title || ''
     }
 
-    await sock.sendMessage(chatId, { text: T.downloading }, { quoted: message });
+    await sock.sendMessage(chatId, { text: T.downloading }, { quoted: message })
 
-    let videoData;
+    let videoData
     try {
-      videoData = await getYupraVideoByUrl(videoUrl);
+      videoData = await getLolhumanVideoByUrl(videoUrl)
     } catch {
-      videoData = await getOkatsuVideoByUrl(videoUrl);
+      try {
+        videoData = await getYupraVideoByUrl(videoUrl)
+      } catch {
+        videoData = await getOkatsuVideoByUrl(videoUrl)
+      }
     }
 
-    const title = safeTitle(videoData?.title || videoTitle || 'YouTube Video');
+    const title = safeTitle(videoData?.title || videoTitle || 'YouTube Video')
 
     await sock.sendMessage(
       chatId,
@@ -164,13 +183,13 @@ async function videoCommand(sock, message, args = []) {
         caption: `*${title}*\n\n> ${T.downloaded}`
       },
       { quoted: message }
-    );
+    )
 
-    await safeReact(sock, chatId, message.key, '✅');
+    await safeReact(sock, chatId, message.key, '✅')
   } catch (error) {
-    console.error('[VIDEO]', error?.message || error);
-    await safeReact(sock, chatId, message.key, '❌');
-    await sock.sendMessage(chatId, { text: T.failed }, { quoted: message });
+    console.error('[VIDEO]', error?.message || error)
+    await safeReact(sock, chatId, message.key, '❌')
+    await sock.sendMessage(chatId, { text: T.failed }, { quoted: message })
   }
 }
 
@@ -197,4 +216,4 @@ module.exports = {
   exec: videoCommand,
   execute: videoCommand,
   videoCommand
-};
+}

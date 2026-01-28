@@ -1,6 +1,7 @@
-const { igdl } = require('ruhend-scraper');
 const { getLang } = require('../../lib/lang');
+const getApi = require('../../lib/api');
 
+const api = getApi();
 const processedMessages = new Set();
 
 function pickChatId(chatIdArg, message) {
@@ -47,9 +48,49 @@ async function safeReact(sock, chatId, key, emoji) {
 }
 
 function cleanupProcessedMessages() {
-  if (processedMessages.size > 5000) {
-    processedMessages.clear();
+  if (processedMessages.size > 5000) processedMessages.clear();
+}
+
+function normalizeMediaItems(payload) {
+  const out = [];
+
+  const pushUrl = (u, t) => {
+    const url = typeof u === 'string' ? u.trim() : '';
+    if (!url || !/^https?:\/\//i.test(url)) return;
+    const type =
+      t ||
+      (/\.(mp4|mov|avi|mkv|webm)(\?|$)/i.test(url) ? 'video' : 'image');
+    out.push({ url, type });
+  };
+
+  if (!payload) return out;
+
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      if (typeof item === 'string') pushUrl(item);
+      else if (item && typeof item === 'object') {
+        pushUrl(item.url || item.link || item.download || item.src, item.type);
+        if (Array.isArray(item.urls)) item.urls.forEach((x) => pushUrl(x, item.type));
+      }
+    }
+    return out;
   }
+
+  if (typeof payload === 'string') {
+    pushUrl(payload);
+    return out;
+  }
+
+  if (payload && typeof payload === 'object') {
+    if (Array.isArray(payload.media)) payload.media.forEach((x) => pushUrl(x?.url || x?.link || x, x?.type));
+    if (Array.isArray(payload.medias)) payload.medias.forEach((x) => pushUrl(x?.url || x?.link || x, x?.type));
+    pushUrl(payload.url || payload.link || payload.download || payload.video || payload.image, payload.type);
+
+    if (Array.isArray(payload.result)) payload.result.forEach((x) => pushUrl(x?.url || x?.link || x, x?.type));
+    if (Array.isArray(payload.data)) payload.data.forEach((x) => pushUrl(x?.url || x?.link || x, x?.type));
+  }
+
+  return out;
 }
 
 async function instagramCommand(sock, chatIdArg, message, args) {
@@ -103,8 +144,15 @@ async function instagramCommand(sock, chatIdArg, message, args) {
 
     await safeReact(sock, chatId, message.key, '🔄');
 
-    const downloadData = await igdl(url).catch(() => null);
-    const mediaData = downloadData?.data;
+    const { data } = await api.get('/api/instagram', { params: { url } });
+
+    const payload =
+      data?.result ||
+      data?.results ||
+      data?.data ||
+      data;
+
+    const mediaData = normalizeMediaItems(payload);
 
     if (!Array.isArray(mediaData) || mediaData.length === 0) {
       await sock.sendMessage(chatId, { text: T.noMedia }, { quoted: message });

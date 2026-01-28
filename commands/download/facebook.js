@@ -2,6 +2,9 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const { getLang } = require('../../lib/lang');
+const getApi = require('../../lib/api');
+
+const api = getApi();
 
 function pickChatId(maybeChatId, message) {
   if (typeof maybeChatId === 'string' && maybeChatId.includes('@')) return maybeChatId;
@@ -89,49 +92,45 @@ async function facebookCommand(sock, chatIdArg, message) {
     } catch {}
 
     async function fetchFromApi(u) {
-      const apiUrl = `https://api.hanggts.xyz/download/facebook?url=${encodeURIComponent(u)}`;
-      const response = await axios.get(apiUrl, {
-        timeout: 20000,
-        headers: {
-          accept: '*/*',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        },
-        maxRedirects: 5,
-        validateStatus: (s) => s >= 200 && s < 500
-      });
-      return response?.data ? response.data : null;
+      const { data } = await api.get('/api/facebook', { params: { url: u } });
+      return data || null;
     }
 
-    let data = await fetchFromApi(resolvedUrl);
+    let data = null;
+    try {
+      data = await fetchFromApi(resolvedUrl);
+    } catch {}
     if (!data) data = await fetchFromApi(url);
 
     let fbvid = null;
     let title = null;
 
-    if (data?.result?.media) {
-      fbvid = data.result.media.video_hd || data.result.media.video_sd;
-      title = data.result.info?.title || data.result.title || data.title || 'Facebook Video';
-    } else if (data?.result && typeof data.result === 'object' && data.result.url) {
-      fbvid = data.result.url;
-      title = data.result.title || data.result.caption || data.title || 'Facebook Video';
-    } else if (typeof data?.result === 'string' && data.result.startsWith('http')) {
-      fbvid = data.result;
-      title = data.title || 'Facebook Video';
-    } else if (Array.isArray(data?.data) && data.data.length) {
-      const hd = data.data.find(
-        (x) => (x.quality === 'HD' || x.quality === 'high') && (x.format === 'mp4' || !x.format)
-      );
-      const sd = data.data.find(
-        (x) => (x.quality === 'SD' || x.quality === 'low') && (x.format === 'mp4' || !x.format)
-      );
-      fbvid = hd?.url || sd?.url || data.data[0]?.url;
-      title = hd?.title || sd?.title || data.data[0]?.title || data.title || 'Facebook Video';
-    } else if (data?.data && typeof data.data === 'object') {
-      fbvid = data.data.url || data.data.download || data.data.video || null;
-      title = data.data.title || data.data.caption || data.title || 'Facebook Video';
-    } else {
-      fbvid = data?.url || data?.download || (typeof data?.video === 'string' ? data.video : data?.video?.url) || null;
-      title = data?.title || data?.caption || data?.video?.title || 'Facebook Video';
+    const r = data?.result || data?.results || data?.data || data;
+
+    if (r?.media) {
+      fbvid = r.media.video_hd || r.media.hd || r.media.video_sd || r.media.sd;
+      title = r.info?.title || r.title || data?.title || 'Facebook Video';
+    } else if (r && typeof r === 'object') {
+      fbvid =
+        r.video_hd ||
+        r.hd ||
+        r.video_sd ||
+        r.sd ||
+        r.url ||
+        r.link ||
+        r.download ||
+        (typeof r.video === 'string' ? r.video : r.video?.url) ||
+        null;
+
+      title =
+        r.title ||
+        r.caption ||
+        r.info?.title ||
+        data?.title ||
+        'Facebook Video';
+    } else if (typeof r === 'string' && r.startsWith('http')) {
+      fbvid = r;
+      title = data?.title || 'Facebook Video';
     }
 
     if (!fbvid) {

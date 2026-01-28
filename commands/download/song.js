@@ -2,33 +2,13 @@ const axios = require('axios')
 
 const yts = require('yt-search')
 
-const fs = require('fs')
-
-const path = require('path')
-
-const getApi = require('../../lib/api')
-
 const { toAudio } = require('../../lib/converter')
 
 const { getLang } = require('../../lib/lang')
 
-const api = getApi()
+const getApi = require('../../lib/api')
 
-const AXIOS_DEFAULTS = {
-
-  timeout: 60000,
-
-  headers: {
-
-    'User-Agent':
-
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-
-    Accept: 'application/json, text/plain, */*'
-
-  }
-
-}
+const api = getApi() // lolhuman axios instance
 
 async function safeReact(sock, chatId, key, emoji) {
 
@@ -37,112 +17,6 @@ async function safeReact(sock, chatId, key, emoji) {
     await sock.sendMessage(chatId, { react: { text: emoji, key } })
 
   } catch {}
-
-}
-
-async function tryRequest(getter, attempts = 3) {
-
-  let lastError
-
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-
-    try {
-
-      return await getter()
-
-    } catch (err) {
-
-      lastError = err
-
-      if (attempt < attempts) await new Promise(r => setTimeout(r, 900 * attempt))
-
-    }
-
-  }
-
-  throw lastError
-
-}
-
-async function getLolhumanAudioByUrl(youtubeUrl) {
-
-  const { data } = await api.get('/api/ytaudio2', { params: { url: youtubeUrl } })
-
-  const link = data?.result?.link
-
-  if (!link) throw new Error('No link')
-
-  return {
-
-    download: link,
-
-    title: data.result.title,
-
-    thumbnail: data.result.thumbnail
-
-  }
-
-}
-
-async function getYupraDownloadByUrl(youtubeUrl) {
-
-  const apiUrl = `https://api.yupra.my.id/api/downloader/ytmp3?url=${encodeURIComponent(youtubeUrl)}`
-
-  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS))
-
-  if (res?.data?.success && res?.data?.data?.download_url) {
-
-    return {
-
-      download: res.data.data.download_url,
-
-      title: res.data.data.title,
-
-      thumbnail: res.data.data.thumbnail
-
-    }
-
-  }
-
-  throw new Error('Yupra failed')
-
-}
-
-async function getOkatsuDownloadByUrl(youtubeUrl) {
-
-  const apiUrl = `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url=${encodeURIComponent(youtubeUrl)}`
-
-  const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS))
-
-  if (res?.data?.dl) {
-
-    return {
-
-      download: res.data.dl,
-
-      title: res.data.title,
-
-      thumbnail: res.data.thumb
-
-    }
-
-  }
-
-  throw new Error('Okatsu failed')
-
-}
-
-function safeFileName(name) {
-
-  return String(name || 'song')
-
-    .replace(/[\\/:*?"<>|]/g, '')
-
-    .replace(/\s+/g, ' ')
-
-    .trim()
-
-    .slice(0, 80)
 
 }
 
@@ -166,37 +40,111 @@ function extractQuery(message, args = []) {
 
 function isYouTubeUrl(text) {
 
-  return /https?:\/\/\S+/.test(text) && (text.includes('youtube.com') || text.includes('youtu.be'))
+  return /youtu\.be|youtube\.com/i.test(text)
 
 }
 
-async function downloadToBuffer(url) {
+function safeFileName(name) {
 
-  const res = await axios.get(url, {
+  return String(name || 'song')
 
-    responseType: 'arraybuffer',
+    .replace(/[\\/:*?"<>|]/g, '')
 
-    timeout: 90000,
+    .replace(/\s+/g, ' ')
 
-    headers: { 'User-Agent': 'Mozilla/5.0' }
+    .trim()
+
+    .slice(0, 80)
+
+}
+
+/* ===================== LOLHUMAN ===================== */
+
+async function getLolhumanAudio(url) {
+
+  console.log('[SONG] Trying lolhuman...')
+
+  const res = await api.get('/api/ytaudio', {
+
+    params: { url }
 
   })
 
-  return Buffer.from(res.data)
+  console.log('[LOLHUMAN RESPONSE]', res.data)
+
+  const link = res?.data?.result?.link
+
+  if (!link) throw new Error('LOLHUMAN_NO_LINK')
+
+  return {
+
+    download: link,
+
+    title: res.data.result.title,
+
+    thumb: res.data.result.thumbnail
+
+  }
 
 }
 
-function detectAudioExt(buffer) {
+/* ===================== FALLBACK 1 ===================== */
 
-  if (buffer.slice(0, 3).toString() === 'ID3') return 'mp3'
+async function getYupra(url) {
 
-  if (buffer.slice(0, 4).toString() === 'OggS') return 'ogg'
+  console.log('[SONG] Trying yupra...')
 
-  if (buffer.slice(0, 4).toString() === 'RIFF') return 'wav'
+  const r = await axios.get(
 
-  return 'm4a'
+    `https://api.yupra.my.id/api/downloader/ytmp3?url=${encodeURIComponent(url)}`,
+
+    { timeout: 60000 }
+
+  )
+
+  if (!r?.data?.success) throw new Error('YUPRA_FAILED')
+
+  return {
+
+    download: r.data.data.download_url,
+
+    title: r.data.data.title,
+
+    thumb: r.data.data.thumbnail
+
+  }
 
 }
+
+/* ===================== FALLBACK 2 ===================== */
+
+async function getOkatsu(url) {
+
+  console.log('[SONG] Trying okatsu...')
+
+  const r = await axios.get(
+
+    `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url=${encodeURIComponent(url)}`,
+
+    { timeout: 60000 }
+
+  )
+
+  if (!r?.data?.dl) throw new Error('OKATSU_FAILED')
+
+  return {
+
+    download: r.data.dl,
+
+    title: r.data.title,
+
+    thumb: r.data.thumb
+
+  }
+
+}
+
+/* ===================== MAIN COMMAND ===================== */
 
 async function songCommand(sock, message, args = []) {
 
@@ -208,11 +156,11 @@ async function songCommand(sock, message, args = []) {
 
     ar: {
 
-      usage: 'الاستخدام: .song <اسم الأغنية>',
+      usage: 'اكتب: .song <اسم الأغنية>',
 
-      searching: q => `🔍 جاري البحث عن: *${q}* ...`,
+      searching: q => `🔍 جاري البحث عن: *${q}*`,
 
-      best: t => `⭐ أفضل تطابق:\n*${t}*`,
+      best: t => `⭐ أفضل نتيجة:\n*${t}*`,
 
       failed: '❌ فشل تحميل الأغنية.'
 
@@ -222,7 +170,7 @@ async function songCommand(sock, message, args = []) {
 
       usage: 'Usage: .song <song name>',
 
-      searching: q => `🔍 Searching for: *${q}* ...`,
+      searching: q => `🔍 Searching for: *${q}*`,
 
       best: t => `⭐ Best match:\n*${t}*`,
 
@@ -230,7 +178,7 @@ async function songCommand(sock, message, args = []) {
 
     }
 
-  }[lang] || T.en
+  }[lang]
 
   try {
 
@@ -246,8 +194,6 @@ async function songCommand(sock, message, args = []) {
 
     }
 
-    let searchMsg
-
     let video
 
     if (isYouTubeUrl(query)) {
@@ -256,7 +202,7 @@ async function songCommand(sock, message, args = []) {
 
     } else {
 
-      searchMsg = await sock.sendMessage(
+      const searchingMsg = await sock.sendMessage(
 
         chatId,
 
@@ -268,13 +214,7 @@ async function songCommand(sock, message, args = []) {
 
       const search = await yts(query)
 
-      if (!search?.videos?.length) {
-
-        await sock.sendMessage(chatId, { text: T.failed }, { quoted: message })
-
-        return
-
-      }
+      if (!search?.videos?.length) throw new Error('NO_RESULTS')
 
       video = search.videos[0]
 
@@ -282,7 +222,7 @@ async function songCommand(sock, message, args = []) {
 
         text: T.best(video.title),
 
-        edit: searchMsg.key
+        edit: searchingMsg.key
 
       })
 
@@ -292,27 +232,37 @@ async function songCommand(sock, message, args = []) {
 
     try {
 
-      audioData = await getLolhumanAudioByUrl(video.url)
+      audioData = await getLolhumanAudio(video.url)
 
-    } catch {
+    } catch (e1) {
+
+      console.error('[LOLHUMAN ERROR]', e1.message)
 
       try {
 
-        audioData = await getYupraDownloadByUrl(video.url)
+        audioData = await getYupra(video.url)
 
-      } catch {
+      } catch (e2) {
 
-        audioData = await getOkatsuDownloadByUrl(video.url)
+        console.error('[YUPRA ERROR]', e2.message)
+
+        audioData = await getOkatsu(video.url)
 
       }
 
     }
 
-    const buffer = await downloadToBuffer(audioData.download)
+    console.log('[SONG] Downloading audio...')
 
-    const ext = detectAudioExt(buffer)
+    const audioRes = await axios.get(audioData.download, {
 
-    const finalBuffer = ext === 'mp3' ? buffer : await toAudio(buffer, ext)
+      responseType: 'arraybuffer',
+
+      timeout: 90000
+
+    })
+
+    const finalBuffer = await toAudio(Buffer.from(audioRes.data), 'mp3')
 
     await sock.sendMessage(
 
@@ -334,7 +284,9 @@ async function songCommand(sock, message, args = []) {
 
     await safeReact(sock, chatId, message.key, '✅')
 
-  } catch (e) {
+  } catch (err) {
+
+    console.error('[SONG FATAL ERROR]', err)
 
     await safeReact(sock, chatId, message.key, '❌')
 
@@ -348,7 +300,7 @@ module.exports = {
 
   name: 'song',
 
-  aliases: ['song', 'play', 'music', 'اغنية', 'أغنية', 'شغل'],
+  aliases: ['song', 'play', 'music', 'اغنية', 'أغنية'],
 
   run: songCommand,
 
