@@ -350,7 +350,11 @@ async function handleLinkDetection(sock, chatId, message, _userMessage, senderId
 
     if (!cfg?.enabled) return;
 
-    // ✅ اعتمد على نص الرسالة الحقيقي بدل ما تستنى باراميتر ييجي صح
+    // ✅ استثناء رسائل البوت نفسه
+
+    if (message?.key?.fromMe) return;
+
+    // ✅ اعتمد على نص الرسالة الحقيقي
 
     const userMessage = getText(message);
 
@@ -360,13 +364,17 @@ async function handleLinkDetection(sock, chatId, message, _userMessage, senderId
 
     if (!allLinks.test(String(userMessage || ''))) return;
 
-    // ✅ تأكد البوت أدمن وقت التنفيذ (مش بس وقت الأمر)
+    // ✅ تأكد البوت أدمن وقت التنفيذ
 
-    const { isBotAdmin } = await isAdmin(sock, chatId, senderId);
+    const { isBotAdmin, isSenderAdmin } = await isAdmin(sock, chatId, senderId);
+
+    // ✅ استثناء الأدمن (المطلوب)
+
+    if (isSenderAdmin) return;
 
     if (!isBotAdmin) return;
 
-    // ✅ أفضل طريقة حذف: delete: message.key
+    // ✅ حذف الرسالة
 
     try {
 
@@ -428,7 +436,7 @@ async function handleLinkDetection(sock, chatId, message, _userMessage, senderId
 
     }
 
-    // action === 'delete' => خلاص حذفنا ومش محتاجين رسالة
+    // delete فقط: خلاص حذفنا بدون رسالة
 
   } catch (e) {
 
