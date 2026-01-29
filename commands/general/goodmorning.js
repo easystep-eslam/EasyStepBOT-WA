@@ -91,7 +91,7 @@ async function goodMorningCommand(sock, message) {
 
 module.exports = {
   name: 'goodmorning',
-  aliases: ['gm', 'صباح', 'صباح_الخير', 'صباحو'],
+  aliases: ['gm', 'صباح', 'صباح_الخير', 'good'],
   category: {
     ar: '🌐 أوامر عامة',
     en: '🌐 General Commands'
