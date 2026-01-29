@@ -48,6 +48,16 @@ function getFileInfoFromDocument(docMsg) {
   return { fileName, ext, mimetype };
 }
 
+/**
+ * يشيل الأمر من بداية الكابشن لو المستخدم كاتبه ككابشن:
+ * مثال: ".hidetag hello" => "hello"
+ */
+function stripCmdFromCaption(caption = '') {
+  const cap = String(caption || '').trim();
+  // aliases: hidetag, ht, h, منشن_مخفي, م
+  return cap.replace(/^\.(hidetag|ht|h|منشن_مخفي|م)\b\s*/i, '').trim();
+}
+
 async function downloadMediaToTemp(mediaMsg, mediaType) {
   const stream = await downloadContentFromMessage(mediaMsg, mediaType);
   const chunks = [];
@@ -158,7 +168,11 @@ async function hidetagCommand(sock, message, args = []) {
     // If the command is sent with media (not as reply)
     if (msgContent.imageMessage && !quoted) {
       tempFile = await downloadMediaToTemp(msgContent.imageMessage, 'image');
-      const originalCaption = msgContent.imageMessage.caption || userText || '';
+
+      // ✅ هنا التعديل: شيل الأمر من الكابشن
+      const capNoCmd = stripCmdFromCaption(msgContent.imageMessage.caption || '');
+      const originalCaption = capNoCmd || userText || '';
+
       content = {
         image: { url: tempFile },
         caption: `${originalCaption}${visibleReplyLine}`.trim(),
@@ -166,7 +180,11 @@ async function hidetagCommand(sock, message, args = []) {
       };
     } else if (msgContent.videoMessage && !quoted) {
       tempFile = await downloadMediaToTemp(msgContent.videoMessage, 'video');
-      const originalCaption = msgContent.videoMessage.caption || userText || '';
+
+      // ✅ هنا التعديل: شيل الأمر من الكابشن
+      const capNoCmd = stripCmdFromCaption(msgContent.videoMessage.caption || '');
+      const originalCaption = capNoCmd || userText || '';
+
       content = {
         video: { url: tempFile },
         mimetype: 'video/mp4',
@@ -176,8 +194,13 @@ async function hidetagCommand(sock, message, args = []) {
     } else if (msgContent.documentMessage && !quoted) {
       tempFile = await downloadMediaToTemp(msgContent.documentMessage, 'document');
       const { fileName, mimetype } = getFileInfoFromDocument(msgContent.documentMessage);
-      const cap = (userText || '').trim()
-        ? `${userText}${visibleReplyLine}`.trim()
+
+      // ✅ شيل الأمر من الكابشن لو موجود
+      const capNoCmd = stripCmdFromCaption(msgContent.documentMessage.caption || '');
+      const docText = (capNoCmd || userText || '').trim();
+
+      const cap = docText
+        ? `${docText}${visibleReplyLine}`.trim()
         : `${visibleReplyLine}`.trim();
 
       content = {
@@ -191,7 +214,11 @@ async function hidetagCommand(sock, message, args = []) {
       // If the command is a reply to something
       if (quoted.imageMessage) {
         tempFile = await downloadMediaToTemp(quoted.imageMessage, 'image');
-        const originalCaption = quoted.imageMessage.caption || userText || '';
+
+        // ✅ شيل الأمر من كابشن الصورة المقتبسة
+        const capNoCmd = stripCmdFromCaption(quoted.imageMessage.caption || '');
+        const originalCaption = capNoCmd || userText || '';
+
         content = {
           image: { url: tempFile },
           caption: `${originalCaption}${visibleReplyLine}`.trim(),
@@ -199,7 +226,11 @@ async function hidetagCommand(sock, message, args = []) {
         };
       } else if (quoted.videoMessage) {
         tempFile = await downloadMediaToTemp(quoted.videoMessage, 'video');
-        const originalCaption = quoted.videoMessage.caption || userText || '';
+
+        // ✅ شيل الأمر من كابشن الفيديو المقتبس
+        const capNoCmd = stripCmdFromCaption(quoted.videoMessage.caption || '');
+        const originalCaption = capNoCmd || userText || '';
+
         content = {
           video: { url: tempFile },
           mimetype: 'video/mp4',
@@ -209,8 +240,13 @@ async function hidetagCommand(sock, message, args = []) {
       } else if (quoted.documentMessage) {
         tempFile = await downloadMediaToTemp(quoted.documentMessage, 'document');
         const { fileName, mimetype } = getFileInfoFromDocument(quoted.documentMessage);
-        const cap = (userText || '').trim()
-          ? `${userText}${visibleReplyLine}`.trim()
+
+        // ✅ شيل الأمر من كابشن الملف المقتبس
+        const capNoCmd = stripCmdFromCaption(quoted.documentMessage.caption || '');
+        const docText = (capNoCmd || userText || '').trim();
+
+        const cap = docText
+          ? `${docText}${visibleReplyLine}`.trim()
           : `${visibleReplyLine}`.trim();
 
         content = {
