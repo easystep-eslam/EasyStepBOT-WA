@@ -18,7 +18,7 @@ const settings = {
 
   apiKey: "Easystep",          // lolhuman
 
-  autoresbotKey: "AUTORESBOT_API_KEY_HERE", // autoresbot ✅
+  autoresbotKey: "b25a87d6c312d7c0cd327263", // autoresbot ✅
 
   commandMode: "public",
 
