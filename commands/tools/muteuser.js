@@ -78,10 +78,22 @@ function msToLeft(ms, ar) {
   return parts.join(ar ? ' و ' : ' ')
 }
 
-function pickMentionedJid(message) {
+/**
+ * ✅ target from:
+ * - mention (priority)
+ * - reply (extendedTextMessage.contextInfo.participant)
+ */
+function pickTargetJid(message) {
   const ctx = message?.message?.extendedTextMessage?.contextInfo
+
+  // 1) Mention
   const arr = ctx?.mentionedJid
   if (Array.isArray(arr) && arr.length) return normalizeJid(arr[0])
+
+  // 2) Reply
+  const p = ctx?.participant
+  if (p) return normalizeJid(p)
+
   return null
 }
 
@@ -103,7 +115,7 @@ function TXT(chatId) {
       ? '🔇 قائمة muteuser\n\n• لكتم عضو:\n  .muteuser @member 30\n  .muteuser @member 2h\n  .muteuser @member 3d\n\n• لفك الكتم:\n  .unmuteuser @member\n\n• عرض المكتومين:\n  .muted\n\nملاحظة: الرقم فقط = بالدقائق'
       : '🔇 muteuser Menu\n\n• Mute a member:\n  .muteuser @member 30\n  .muteuser @member 2h\n  .muteuser @member 3d\n\n• Unmute:\n  .unmuteuser @member\n\n• List muted:\n  .muted\n\nNote: number only = minutes',
 
-    needMention: ar ? '❌ منشن العضو.' : '❌ Mention a member.',
+    needMention: ar ? '❌ منشن العضو أو اعمل ريبلاي على رسالته.' : '❌ Mention a member or reply to their message.',
     needTime: ar ? '❌ اكتب مدة (مثال: 30 أو 2h أو 3d).' : '❌ Provide a duration (e.g., 30 or 2h or 3d).',
     badTime: ar ? '❌ مدة غير صحيحة. استخدم 30 / 2h / 3d.' : '❌ Invalid duration. Use 30 / 2h / 3d.',
     added: (left) => (ar ? `✅ تم كتم العضو. المدة المتبقية: ${left}` : `✅ Member muted. Time left: ${left}`),
@@ -173,8 +185,8 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
     return
   }
 
-  const mentioned = pickMentionedJid(message)
-  const targetJid = mentioned ? normalizeJid(mentioned) : null
+  // ✅ mention OR reply
+  const targetJid = pickTargetJid(message)
 
   let db = readDB()
   db = cleanupExpired(db, chatId)
@@ -206,7 +218,7 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
     return
   }
 
-  if (cmd === 'unmuteuser' || cmd === 'فك_كتم' || cmd === 'فك') {
+  if (cmd === 'unmuteuser' || cmd === 'فك_كتم' || cmd === 'فك' || cmd === 'unmute') {
     if (!targetJid) {
       await safeReact(sock, chatId, message?.key, '❌')
       await sock.sendMessage(chatId, { text: T.needMention }, { quoted: message })
@@ -279,7 +291,7 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
 module.exports = {
   name: 'muteuser',
   commands: ['muteuser', 'unmuteuser', 'muted'],
-  aliases: ['كتم_عضو', 'فك_كتم', 'المكتومين', 'كتم', 'فك'],
+  aliases: ['كتم_عضو', 'فك_كتم', 'المكتومين', 'كتم', 'فك', 'unmute'],
   category: {
     ar: '🤖 أدوات EasyStep',
     en: '🤖 Easystep Tools'
@@ -301,4 +313,4 @@ module.exports = {
   execute: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args),
   readDB,
   writeDB
-}
+  }
