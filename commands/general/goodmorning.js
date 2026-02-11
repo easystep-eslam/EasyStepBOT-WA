@@ -10,22 +10,22 @@ async function goodMorningCommand(sock, message) {
       react: '☀️',
       messages: [
         '☀️ Good morning everyone!\n🤲 May your day be blessed and full of goodness.',
-        '🌅 Morning vibes!\n🤲 Wishing you success, peace, and رزق واسع.',
+        '🌅 Morning vibes!\n🤲 Wishing you success, peace, and abundant provision.',
         '🌞 A fresh start for a new day.\n🤲 May Allah bless your time and efforts.',
-        '✨ Good morning!\n🤲 May your heart be calm and your رزق be abundant.',
+        '✨ Good morning!\n🤲 May your heart be calm and your provision be abundant.',
         '☕ Good morning!\n🤲 May your day be easy and productive.',
         '🌤️ Rise and shine!\n🤲 May today bring you happiness and success.',
-        '🌼 Good morning to all!\n🤲 May Allah open doors of الخير for you.',
+        '🌼 Good morning to all!\n🤲 May Allah open doors of goodness for you.',
         '☀️ New morning, new opportunities.\n🤲 May your steps be guided.',
         '🌞 Good morning!\n🤲 May your work be blessed and your heart content.',
         '✨ Wishing you a peaceful morning and a successful day.',
-        '🌤️ Good morning!\n🤲 May Allah put barakah in your وقت and your رزق.',
+        '🌤️ Good morning!\n🤲 May Allah place blessings in your time and your provision.',
         '☀️ A bright morning to you all!\n🤲 May your day be filled with ease and smiles.',
-        '🌅 Good morning!\n🤲 May Allah grant you clarity, strength, and خير.',
+        '🌅 Good morning!\n🤲 May Allah grant you clarity, strength, and goodness.',
         '🌞 Morning reminder:\n🤲 Start with Bismillah and trust Allah.',
         '☕ Morning coffee & good energy!\n🤲 May your day be smooth and productive.',
         '✨ A calm morning, a blessed day.\n🤲 May Allah protect you and guide you.',
-        '🌼 Good morning!\n🤲 May your قلب be light and your mind at peace.',
+        '🌼 Good morning!\n🤲 May your heart be light and your mind at peace.',
         '☀️ New day, new mercy.\n🤲 May Allah accept your good deeds today.',
         '🌅 Rise with hope.\n🤲 May Allah open doors you never imagined.',
         '🌞 Good morning everyone!\n🤲 May today be a step closer to your goals.'
@@ -69,11 +69,15 @@ async function goodMorningCommand(sock, message) {
   let members = [];
   try {
     const metadata = await sock.groupMetadata(chatId);
-    members = (metadata.participants || []).map(p => p.id).filter(Boolean);
+    members = (metadata.participants || [])
+      .map(p => p.id)
+      .filter(Boolean);
   } catch {}
 
   const list = Array.isArray(T.messages) && T.messages.length ? T.messages : [];
-  const text = list[Math.floor(Math.random() * list.length)] || (lang === 'ar' ? '☀️ صباح الخير!' : '☀️ Good morning!');
+  const text =
+    list[Math.floor(Math.random() * list.length)] ||
+    (lang === 'ar' ? '☀️ صباح الخير!' : '☀️ Good morning!');
 
   await sock.sendMessage(
     chatId,
@@ -85,7 +89,9 @@ async function goodMorningCommand(sock, message) {
   );
 
   try {
-    await sock.sendMessage(chatId, { react: { text: T.react || '☀️', key: message.key } });
+    await sock.sendMessage(chatId, {
+      react: { text: T.react || '☀️', key: message.key }
+    });
   } catch {}
 }
 
@@ -109,7 +115,5 @@ module.exports = {
   owner: false,
   showInMenu: true,
   run: goodMorningCommand,
-
-  // توافق مع القديم لو حد كان بينادي exec
   exec: goodMorningCommand
 };
