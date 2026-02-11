@@ -4,6 +4,40 @@ const { getLang } = require('../../lib/lang');
 
 const timers = new Map();
 
+function TXT(chatId) {
+
+  const ar = getLang(chatId) === 'ar';
+
+  return {
+
+    onlyGroup: ar ? '❌ الأمر ده للجروبات بس.' : '❌ This command can only be used in groups.',
+
+    needBotAdmin: ar ? '❌ لازم تخلي البوت أدمن الأول.' : '❌ Please make the bot an admin first.',
+
+    needSenderAdmin: ar ? '❌ الأمر ده للأدمنية بس.' : '❌ Only group admins can use this command.',
+
+    help: ar
+
+      ? '*فتح الجروب*\n\n• .unmute\n• .unmute [دقايق]\n\nملحوظة: لو كتبت وقت، بيتعمل مؤقت ويرجع يقفل تلقائي.'
+
+      : '*Unmute*\n\n• .unmute\n• .unmute [minutes]\n\nNote: If minutes provided, a timer will auto-mute again.',
+
+    invalidMin: ar ? '❌ الوقت لازم يكون رقم بالدقائق (مثال: .unmute 5)' : '❌ Minutes must be a number (e.g. .unmute 5)',
+
+    unmuted: ar ? '🔊 تم فتح الجروب.' : '🔊 Group has been unmuted.',
+
+    unmutedFor: (m) => (ar ? `🔊 تم فتح الجروب لمدة ${m} دقيقة.` : `🔊 Group has been unmuted for ${m} minutes.`),
+
+    autoMuted: ar ? '🔇 تم قفل الجروب تلقائيًا.' : '🔇 Group has been auto-muted.',
+
+    timerCleared: ar ? '⏱️ تم إلغاء المؤقت القديم.' : '⏱️ Previous timer cleared.',
+
+    err: ar ? '❌ حصل خطأ. جرّب تاني.' : '❌ An error occurred. Please try again.'
+
+  };
+
+}
+
 function getText(message) {
 
   return (
@@ -22,42 +56,6 @@ function getText(message) {
 
 }
 
-function TXT(chatId) {
-
-  const ar = getLang(chatId) === 'ar';
-
-  return {
-
-    onlyGroup: ar ? '❌ الأمر ده للجروبات بس.' : '❌ This command is for groups only.',
-
-    needBotAdmin: ar ? '❌ لازم تخلي البوت أدمن الأول.' : '❌ Please make the bot an admin first.',
-
-    needSenderAdmin: ar ? '❌ الأمر ده للأدمنية بس.' : '❌ Only group admins can use this command.',
-
-    invalidMin: ar ? '❌ الوقت لازم يكون رقم بالدقائق (مثال: .mute 5)' : '❌ Minutes must be a number (e.g. .mute 5)',
-
-    muted: ar ? '🔇 تم قفل الجروب (ميوت).' : '🔇 The group has been muted.',
-
-    unmuted: ar ? '🔊 تم فتح الجروب.' : '🔊 The group has been unmuted.',
-
-    mutedFor: (m) => (ar ? `🔇 تم قفل الجروب لمدة ${m} دقيقة.` : `🔇 The group has been muted for ${m} minutes.`),
-
-    unmutedFor: (m) => (ar ? `🔊 تم فتح الجروب لمدة ${m} دقيقة.` : `🔊 The group has been unmuted for ${m} minutes.`),
-
-    timerCleared: ar ? '⏱️ تم إلغاء المؤقت القديم.' : '⏱️ Previous timer cleared.',
-
-    err: ar ? '❌ حصل خطأ. جرّب تاني.' : '❌ An error occurred. Please try again.',
-
-    usage: ar
-
-      ? 'ℹ️ الاستخدام:\n• .mute [دقايق]\n• .unmute [دقايق]\n\nلو كتبت وقت، بيتعمل مؤقت للتبديل تلقائيًا.'
-
-      : 'ℹ️ Usage:\n• .mute [minutes]\n• .unmute [minutes]\n\nIf minutes provided, a timer will auto-toggle.'
-
-  };
-
-}
-
 function parseMinutes(arg) {
 
   if (arg === undefined || arg === null || arg === '') return null;
@@ -67,24 +65,6 @@ function parseMinutes(arg) {
   if (!Number.isFinite(n) || n <= 0) return NaN;
 
   return Math.floor(n);
-
-}
-
-async function safeReact(sock, chatId, key, emoji) {
-
-  if (!key) return;
-
-  try {
-
-    await sock.sendMessage(chatId, { react: { text: emoji, key } });
-
-  } catch {}
-
-}
-
-async function setAnnouncement(sock, chatId, on) {
-
-  await sock.groupSettingUpdate(chatId, on ? 'announcement' : 'not_announcement');
 
 }
 
@@ -102,43 +82,13 @@ function clearExistingTimer(chatId) {
 
 }
 
-function getUsedCommand(message) {
+async function setAnnouncement(sock, chatId, on) {
 
-  const raw = getText(message).trim();
-
-  const first = (raw.split(/\s+/)[0] || '').toLowerCase();
-
-  return first.startsWith('.') ? first.slice(1) : first;
+  await sock.groupSettingUpdate(chatId, on ? 'announcement' : 'not_announcement');
 
 }
 
-function extractArgs(message, args) {
-
-  if (Array.isArray(args) && args.length) return args;
-
-  const raw = getText(message).trim();
-
-  const used = (raw.split(/\s+/)[0] || '').trim();
-
-  const rest = raw.slice(used.length).trim();
-
-  return rest ? rest.split(/\s+/).filter(Boolean) : [];
-
-}
-
-function isUnmuteWord(word) {
-
-  return ['unmute', 'فتح', 'فك_الميوت', 'فك-الميوت', 'unmute1', 'unmute2'].includes(word);
-
-}
-
-function isMuteWord(word) {
-
-  return ['mute', 'ميوت', 'قفل', 'mute1', 'mute2'].includes(word);
-
-}
-
-async function handler(sock, chatId, message, args) {
+async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin) {
 
   if (!chatId) return;
 
@@ -146,21 +96,25 @@ async function handler(sock, chatId, message, args) {
 
   if (!chatId.endsWith('@g.us')) {
 
-    await safeReact(sock, chatId, message?.key, '❌');
-
     await sock.sendMessage(chatId, { text: T.onlyGroup }, { quoted: message });
 
     return;
 
   }
 
-  const realSenderId = message?.key?.participant || chatId;
+  const realSenderId =
+
+    senderId ||
+
+    message?.key?.participant ||
+
+    message?.participant ||
+
+    message?.key?.remoteJid;
 
   const adminStatus = await isAdmin(sock, chatId, realSenderId).catch(() => null);
 
   if (!adminStatus?.isBotAdmin) {
-
-    await safeReact(sock, chatId, message?.key, '❌');
 
     await sock.sendMessage(chatId, { text: T.needBotAdmin }, { quoted: message });
 
@@ -168,9 +122,15 @@ async function handler(sock, chatId, message, args) {
 
   }
 
-  if (!adminStatus?.isSenderAdmin && !message?.key?.fromMe) {
+  const senderAdmin =
 
-    await safeReact(sock, chatId, message?.key, '🚫');
+    typeof isSenderAdmin === 'boolean'
+
+      ? isSenderAdmin
+
+      : !!adminStatus?.isSenderAdmin;
+
+  if (!senderAdmin && !message?.key?.fromMe) {
 
     await sock.sendMessage(chatId, { text: T.needSenderAdmin }, { quoted: message });
 
@@ -178,31 +138,33 @@ async function handler(sock, chatId, message, args) {
 
   }
 
-  const usedCmd = getUsedCommand(message);
+  // لو حد استدعى الملف بالغلط/منيو... نتحقق من الأمر
 
-  const inferredArgs = extractArgs(message, args);
+  const raw = getText(message).trim();
 
-  const minutesArg = inferredArgs?.[0];
+  const used = (raw.split(/\s+/)[0] || '').toLowerCase();
 
-  const minutes = parseMinutes(minutesArg);
+  const cmd = used.startsWith('.') ? used.slice(1) : used;
 
-  const doMute = isMuteWord(usedCmd);
+  const isUnmute = cmd === 'unmute' || cmd === 'فتح' || cmd === 'فك_الميوت';
 
-  const doUnmute = isUnmuteWord(usedCmd);
+  if (!isUnmute) {
 
-  if (!doMute && !doUnmute) {
-
-    await safeReact(sock, chatId, message?.key, 'ℹ️');
-
-    await sock.sendMessage(chatId, { text: T.usage }, { quoted: message });
+    await sock.sendMessage(chatId, { text: T.help }, { quoted: message });
 
     return;
 
   }
 
-  if (minutesArg && Number.isNaN(minutes)) {
+  const minutesArg = Array.isArray(args) && args.length
 
-    await safeReact(sock, chatId, message?.key, '❌');
+    ? args[0]
+
+    : raw.slice(used.length).trim().split(/\s+/).filter(Boolean)[0];
+
+  const minutes = parseMinutes(minutesArg);
+
+  if (minutesArg && Number.isNaN(minutes)) {
 
     await sock.sendMessage(chatId, { text: T.invalidMin }, { quoted: message });
 
@@ -210,11 +172,7 @@ async function handler(sock, chatId, message, args) {
 
   }
 
-  const hadOld = clearExistingTimer(chatId);
-
-  if (hadOld) {
-
-    await safeReact(sock, chatId, message?.key, '⏱️');
+  if (clearExistingTimer(chatId)) {
 
     await sock.sendMessage(chatId, { text: T.timerCleared }, { quoted: message });
 
@@ -222,87 +180,41 @@ async function handler(sock, chatId, message, args) {
 
   try {
 
-    if (doMute) {
+    // فتح
 
-      await safeReact(sock, chatId, message?.key, '🔇');
+    await setAnnouncement(sock, chatId, false);
 
-      await setAnnouncement(sock, chatId, true);
+    if (minutes) {
 
-      if (minutes) {
+      await sock.sendMessage(chatId, { text: T.unmutedFor(minutes) }, { quoted: message });
 
-        await sock.sendMessage(chatId, { text: T.mutedFor(minutes) }, { quoted: message });
+      const id = setTimeout(async () => {
 
-        const id = setTimeout(async () => {
+        try {
 
-          try {
+          await setAnnouncement(sock, chatId, true);
 
-            await setAnnouncement(sock, chatId, false);
+          await sock.sendMessage(chatId, { text: T.autoMuted });
 
-            await sock.sendMessage(chatId, { text: T.unmuted });
+        } catch {} finally {
 
-          } catch {} finally {
+          timers.delete(chatId);
 
-            timers.delete(chatId);
+        }
 
-          }
+      }, minutes * 60 * 1000);
 
-        }, minutes * 60 * 1000);
-
-        timers.set(chatId, id);
-
-        return;
-
-      }
-
-      await sock.sendMessage(chatId, { text: T.muted }, { quoted: message });
+      timers.set(chatId, id);
 
       return;
 
     }
 
-    if (doUnmute) {
-
-      await safeReact(sock, chatId, message?.key, '🔊');
-
-      await setAnnouncement(sock, chatId, false);
-
-      if (minutes) {
-
-        await sock.sendMessage(chatId, { text: T.unmutedFor(minutes) }, { quoted: message });
-
-        const id = setTimeout(async () => {
-
-          try {
-
-            await setAnnouncement(sock, chatId, true);
-
-            await sock.sendMessage(chatId, { text: T.muted });
-
-          } catch {} finally {
-
-            timers.delete(chatId);
-
-          }
-
-        }, minutes * 60 * 1000);
-
-        timers.set(chatId, id);
-
-        return;
-
-      }
-
-      await sock.sendMessage(chatId, { text: T.unmuted }, { quoted: message });
-
-      return;
-
-    }
+    await sock.sendMessage(chatId, { text: T.unmuted }, { quoted: message });
 
   } catch (e) {
 
-    console.error('mute/unmute error:', e);
-
-    await safeReact(sock, chatId, message?.key, '❌');
+    console.error('unmute error:', e);
 
     await sock.sendMessage(chatId, { text: T.err }, { quoted: message });
 
@@ -312,9 +224,11 @@ async function handler(sock, chatId, message, args) {
 
 module.exports = {
 
-  name: 'mute',
+  name: 'unmute',
 
-  aliases: ['unmute', 'ميوت', 'قفل', 'فتح', 'فك_الميوت'],
+  commands: ['unmute', 'فتح', 'فك_الميوت'],
+
+  aliases: ['فتح', 'فك_الميوت'],
 
   category: {
 
@@ -326,21 +240,21 @@ module.exports = {
 
   description: {
 
-    ar: 'قفل الجروب (ميوت) أو فتحه، مع إمكانية تحديد مدة بالدقائق للتبديل تلقائيًا.',
+    ar: 'فتح الجروب (إلغاء الميوت) مع مدة اختيارية بالدقائق.',
 
-    en: 'Mute or unmute the group, with optional minutes to auto-toggle after the duration.'
+    en: 'Unmute the group with optional duration in minutes.'
 
   },
 
   usage: {
 
-    ar: '.mute [دقايق]\n.unmute [دقايق]',
+    ar: '.unmute [دقايق]',
 
-    en: '.mute [minutes]\n.unmute [minutes]'
+    en: '.unmute [minutes]'
 
   },
 
-  emoji: '🤐',
+  emoji: '🔊',
 
   admin: true,
 
@@ -348,26 +262,10 @@ module.exports = {
 
   showInMenu: true,
 
-  exec: async (sock, message, args) => {
+  run: (sock, chatId, message, args) => handle(sock, chatId, message, args),
 
-    const chatId = message?.key?.remoteJid;
+  exec: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args),
 
-    return handler(sock, chatId, message, args);
-
-  },
-
-  run: async (sock, chatId, message, args) => {
-
-    return handler(sock, chatId, message, args);
-
-  },
-
-  execute: async (sock, message, args) => {
-
-    const chatId = message?.key?.remoteJid;
-
-    return handler(sock, chatId, message, args);
-
-  }
+  execute: (sock, message, args) => handle(sock, message?.key?.remoteJid, message, args)
 
 };
