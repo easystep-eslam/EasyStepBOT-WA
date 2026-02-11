@@ -291,7 +291,7 @@ async function handle(sock, chatId, message, args = [], senderId, isSenderAdmin)
 module.exports = {
   name: 'muteuser',
   commands: ['muteuser', 'unmuteuser', 'muted'],
-  aliases: ['كتم_عضو', 'فك_كتم', 'المكتومين', 'كتم', 'فك', 'unmute'],
+  aliases: ['كتم_عضو', 'فك_كتم', 'المكتومين', 'كتم', 'فك],
   category: {
     ar: '🤖 أدوات EasyStep',
     en: '🤖 Easystep Tools'
