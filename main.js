@@ -57,6 +57,11 @@ async function shouldDeleteMutedMessage(msg) {
 let muteuser = null;
 try { muteuser = require('./commands/tools/muteuser'); } catch {}
 
+// ===== Auto Translate (group messages to EN) =====
+let autoTranslate = null;
+try { autoTranslate = require('./lib/autoTranslate'); } catch {}
+// ================================================
+
 // main.js (refactored)
 
 // EasyStep-BOT
@@ -762,7 +767,12 @@ if (msg.key?.fromMe && !text.startsWith(settings.prefix || '.')) {
     }
   } catch {}
 
-  const body = getText(msg).trim();
+    // 🌐 Auto-translate (if enabled per group)
+  try {
+    if (autoTranslate) await autoTranslate(sock, msg);
+  } catch {}
+
+const body = getText(msg).trim();
   if (!body) return;
 
 
