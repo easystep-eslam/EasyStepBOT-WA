@@ -48,14 +48,10 @@ function getFileInfoFromDocument(docMsg) {
   return { fileName, ext, mimetype };
 }
 
-/**
- * يشيل الأمر من بداية الكابشن لو المستخدم كاتبه ككابشن:
- * مثال: ".hidetag hello" => "hello"
- */
-function stripCmdFromCaption(caption = '') {
-  const cap = String(caption || '').trim();
-  // aliases: hidetag, ht, h, منشن_مخفي, م
-  return cap.replace(/^\.(hidetag|ht|h|منشن_مخفي|م)\b\s*/i, '').trim();
+/* 🔥 إزالة الأمر من أي نص */
+function stripCmd(text = '') {
+  const t = String(text || '').trim();
+  return t.replace(/^\.(hidetag|ht|h|منشن_مخفي|م)\b\s*/i, '').trim();
 }
 
 async function downloadMediaToTemp(mediaMsg, mediaType) {
@@ -67,21 +63,20 @@ async function downloadMediaToTemp(mediaMsg, mediaType) {
   const tempDir = path.join(process.cwd(), 'temp');
   ensureDir(tempDir);
 
-  let ext = '';
+  let ext = '.bin';
   if (mediaType === 'image') ext = '.jpg';
   else if (mediaType === 'video') ext = '.mp4';
   else if (mediaType === 'audio') ext = '.mp3';
-  else ext = '.bin';
-
-  if (mediaType === 'document') {
+  else if (mediaType === 'document') {
     const { ext: docExt } = getFileInfoFromDocument(mediaMsg);
-    ext = docExt || ext;
+    ext = docExt || '.bin';
   }
 
   const filePath = path.join(
     tempDir,
     `hidetag_${Date.now()}_${Math.random().toString(16).slice(2)}${ext}`
   );
+
   fs.writeFileSync(filePath, buffer);
   return filePath;
 }
@@ -121,43 +116,37 @@ async function hidetagCommand(sock, message, args = []) {
   const T = TXT[lang] || TXT.en;
 
   try {
-    try {
-      await sock.sendMessage(chatId, { react: { text: '🗣', key: message.key } });
-    } catch {}
+    await sock.sendMessage(chatId, { react: { text: '🗣', key: message.key } }).catch(() => {});
 
     if (!chatId.endsWith('@g.us')) {
-      await sock.sendMessage(chatId, { text: T.groupOnly }, { quoted: message });
-      return;
+      return sock.sendMessage(chatId, { text: T.groupOnly }, { quoted: message });
     }
 
     const adminCheck = await isAdmin(sock, chatId, senderId);
-    const isSenderAdmin = !!adminCheck?.isSenderAdmin;
-    const isBotAdmin = !!adminCheck?.isBotAdmin;
+    if (!adminCheck?.isBotAdmin)
+      return sock.sendMessage(chatId, { text: T.botAdmin }, { quoted: message });
 
-    if (!isBotAdmin) {
-      await sock.sendMessage(chatId, { text: T.botAdmin }, { quoted: message });
-      return;
-    }
-
-    if (!isSenderAdmin && !message.key.fromMe) {
-      await sock.sendMessage(chatId, { text: T.senderAdmin }, { quoted: message });
-      return;
-    }
+    if (!adminCheck?.isSenderAdmin && !message.key.fromMe)
+      return sock.sendMessage(chatId, { text: T.senderAdmin }, { quoted: message });
 
     const { quoted, participant: repliedUserJid } = getQuoted(message);
-    const rawText = getMsgText(message).trim();
 
-    const used = (rawText.split(/\s+/)[0] || 'hidetag').toLowerCase();
-    const fromRaw = rawText.slice(used.length).trim();
-    const fromArgs = (Array.isArray(args) ? args.join(' ') : '').trim();
-    const userText = (fromArgs || fromRaw || '').trim();
+    /* 🔥 استخراج النص بدون الأمر نهائيًا */
+    const rawText = getMsgText(message);
+    const argsText = Array.isArray(args) ? args.join(' ') : '';
+
+    const userText =
+      stripCmd(argsText) ||
+      stripCmd(rawText) ||
+      '';
 
     const replyJid = repliedUserJid || senderId;
-    const replyNumber = String(replyJid).split('@')[0];
+    const replyNumber = replyJid.split('@')[0];
+
     const visibleReplyLine = `\n\n${T.aboveMentionText}\n📩 @${replyNumber}`;
 
     const groupMetadata = await sock.groupMetadata(chatId);
-    const members = (groupMetadata.participants || []).map(p => p.id).filter(Boolean);
+    const members = groupMetadata.participants.map(p => p.id);
     const mentions = [...new Set([...members, replyJid])];
 
     let content = null;
@@ -165,121 +154,113 @@ async function hidetagCommand(sock, message, args = []) {
 
     const msgContent = message.message || {};
 
-    // If the command is sent with media (not as reply)
+    /* ====== لو الرسالة فيها ميديا مباشرة ====== */
+
     if (msgContent.imageMessage && !quoted) {
       tempFile = await downloadMediaToTemp(msgContent.imageMessage, 'image');
-
-      // ✅ هنا التعديل: شيل الأمر من الكابشن
-      const capNoCmd = stripCmdFromCaption(msgContent.imageMessage.caption || '');
-      const originalCaption = capNoCmd || userText || '';
+      const cap = stripCmd(msgContent.imageMessage.caption || '') || userText;
 
       content = {
         image: { url: tempFile },
-        caption: `${originalCaption}${visibleReplyLine}`.trim(),
+        caption: `${cap}${visibleReplyLine}`.trim(),
         mentions
       };
+
     } else if (msgContent.videoMessage && !quoted) {
       tempFile = await downloadMediaToTemp(msgContent.videoMessage, 'video');
-
-      // ✅ هنا التعديل: شيل الأمر من الكابشن
-      const capNoCmd = stripCmdFromCaption(msgContent.videoMessage.caption || '');
-      const originalCaption = capNoCmd || userText || '';
+      const cap = stripCmd(msgContent.videoMessage.caption || '') || userText;
 
       content = {
         video: { url: tempFile },
         mimetype: 'video/mp4',
-        caption: `${originalCaption}${visibleReplyLine}`.trim(),
+        caption: `${cap}${visibleReplyLine}`.trim(),
         mentions
       };
+
     } else if (msgContent.documentMessage && !quoted) {
       tempFile = await downloadMediaToTemp(msgContent.documentMessage, 'document');
       const { fileName, mimetype } = getFileInfoFromDocument(msgContent.documentMessage);
 
-      // ✅ شيل الأمر من الكابشن لو موجود
-      const capNoCmd = stripCmdFromCaption(msgContent.documentMessage.caption || '');
-      const docText = (capNoCmd || userText || '').trim();
-
-      const cap = docText
-        ? `${docText}${visibleReplyLine}`.trim()
-        : `${visibleReplyLine}`.trim();
+      const cap = stripCmd(msgContent.documentMessage.caption || '') || userText;
 
       content = {
         document: { url: tempFile },
         fileName,
         mimetype,
-        caption: cap,
+        caption: `${cap}${visibleReplyLine}`.trim(),
         mentions
       };
+
+    /* ====== لو رد على رسالة ====== */
+
     } else if (quoted) {
-      // If the command is a reply to something
+
       if (quoted.imageMessage) {
         tempFile = await downloadMediaToTemp(quoted.imageMessage, 'image');
-
-        // ✅ شيل الأمر من كابشن الصورة المقتبسة
-        const capNoCmd = stripCmdFromCaption(quoted.imageMessage.caption || '');
-        const originalCaption = capNoCmd || userText || '';
+        const cap = stripCmd(quoted.imageMessage.caption || '') || userText;
 
         content = {
           image: { url: tempFile },
-          caption: `${originalCaption}${visibleReplyLine}`.trim(),
+          caption: `${cap}${visibleReplyLine}`.trim(),
           mentions
         };
+
       } else if (quoted.videoMessage) {
         tempFile = await downloadMediaToTemp(quoted.videoMessage, 'video');
-
-        // ✅ شيل الأمر من كابشن الفيديو المقتبس
-        const capNoCmd = stripCmdFromCaption(quoted.videoMessage.caption || '');
-        const originalCaption = capNoCmd || userText || '';
+        const cap = stripCmd(quoted.videoMessage.caption || '') || userText;
 
         content = {
           video: { url: tempFile },
           mimetype: 'video/mp4',
-          caption: `${originalCaption}${visibleReplyLine}`.trim(),
+          caption: `${cap}${visibleReplyLine}`.trim(),
           mentions
         };
+
       } else if (quoted.documentMessage) {
         tempFile = await downloadMediaToTemp(quoted.documentMessage, 'document');
         const { fileName, mimetype } = getFileInfoFromDocument(quoted.documentMessage);
 
-        // ✅ شيل الأمر من كابشن الملف المقتبس
-        const capNoCmd = stripCmdFromCaption(quoted.documentMessage.caption || '');
-        const docText = (capNoCmd || userText || '').trim();
-
-        const cap = docText
-          ? `${docText}${visibleReplyLine}`.trim()
-          : `${visibleReplyLine}`.trim();
+        const cap = stripCmd(quoted.documentMessage.caption || '') || userText;
 
         content = {
           document: { url: tempFile },
           fileName,
           mimetype,
-          caption: cap,
+          caption: `${cap}${visibleReplyLine}`.trim(),
           mentions
         };
+
       } else {
         const originalText =
-          quoted.conversation ||
-          quoted.extendedTextMessage?.text ||
-          userText ||
-          '';
+          stripCmd(
+            quoted.conversation ||
+            quoted.extendedTextMessage?.text ||
+            ''
+          ) || userText;
 
-        const finalText = `${String(originalText || '').trim()}${visibleReplyLine}`.trim();
-        content = { text: finalText || T.usage, mentions };
+        content = {
+          text: `${originalText}${visibleReplyLine}`.trim(),
+          mentions
+        };
       }
+
+    /* ====== نص عادي ====== */
+
     } else {
-      // Normal text usage
-      if (!userText) {
-        await sock.sendMessage(chatId, { text: T.usage }, { quoted: message });
-        return;
-      }
-      content = { text: `${userText}${visibleReplyLine}`.trim(), mentions };
+      if (!userText)
+        return sock.sendMessage(chatId, { text: T.usage }, { quoted: message });
+
+      content = {
+        text: `${userText}${visibleReplyLine}`.trim(),
+        mentions
+      };
     }
 
     await sock.sendMessage(chatId, content, { quoted: message });
-
     if (tempFile) cleanupLater(tempFile);
+
   } catch (err) {
-    console.error('HIDETAG ERROR:', err?.message || err);
+    console.error('HIDETAG ERROR:', err);
     await sock.sendMessage(chatId, { text: T.error }, { quoted: message });
   }
 }
@@ -292,18 +273,16 @@ module.exports = {
     en: '🛠️ Group Management'
   },
   description: {
-    ar: 'منشن مخفي لكل أعضاء الجروب + منشن ظاهر لشخص واحد (الرد/صاحب الأمر) مع دعم نص/صور/فيديو/ملفات.',
-    en: 'Hidden tag for all group members + one visible mention (reply/sender), supports text/media/doc.'
+    ar: 'منشن مخفي لكل أعضاء الجروب + منشن ظاهر لشخص واحد.',
+    en: 'Hidden tag for all group members + one visible mention.'
   },
   usage: {
-    ar: '.hidetag <نص> (أو رد على رسالة)',
-    en: '.hidetag <text> (or reply to a message)'
+    ar: '.hidetag <نص>',
+    en: '.hidetag <text>'
   },
   emoji: '🗣',
   admin: true,
   owner: false,
   showInMenu: true,
-  exec: hidetagCommand,
-  run: hidetagCommand,
-  execute: hidetagCommand
+  exec: hidetagCommand
 };
