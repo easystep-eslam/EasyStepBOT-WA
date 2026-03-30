@@ -27,7 +27,7 @@ function writeKickMsg(chatId, text) {
   try {
     ensureKickMsgFile();
     const data = JSON.parse(fs.readFileSync(KICKMSG_FILE, 'utf8') || '{}') || {};
-    const v = String(text || '').trim();
+    const v = String(text || '').replace(/\\n/g, '\n').trim();
     if (!v) return false;
     data[chatId] = v;
     fs.writeFileSync(KICKMSG_FILE, JSON.stringify(data, null, 2));
@@ -105,54 +105,6 @@ async function buildKickText(sock, chatId, lang, targets, senderId) {
     .replace(/{group}/g, groupName);
 }
 
-function helpText(lang, defaultTemplate, currentCustom) {
-  if (lang === 'ar') {
-    const current =
-      currentCustom
-        ? `✅ رسالة الطرد الحالية (مخصصة):\n${currentCustom}`
-        : 'ℹ️ لا توجد رسالة طرد مخصصة حاليًا.';
-    return (
-      `👢 *kick*\n\n` +
-      `*الاستخدام:*\n` +
-      `• .kick @user\n` +
-      `• .kick (رد على رسالة)\n` +
-      `• .kick رقم\n\n` +
-      `*تخصيص رسالة الطرد:*\n` +
-      `• .kick set <رسالة الطرد>\n` +
-      `• .kick off\n\n` +
-      `*المتغيرات:*\n` +
-      `{user} = الشخص/الأشخاص\n` +
-      `{by} = الأدمن المنفّذ\n` +
-      `{group} = اسم الجروب\n\n` +
-      `*ملحوظة:* لو مفيش رسالة طرد مخصصة، الرسالة الافتراضية:\n` +
-      `${defaultTemplate}\n\n` +
-      `${current}`
-    );
-  }
-
-  const current =
-    currentCustom
-      ? `✅ Current kick message (custom):\n${currentCustom}`
-      : 'ℹ️ No custom kick message is set.';
-  return (
-    `👢 *Kick*\n\n` +
-    `*Usage:*\n` +
-    `• .kick @user\n` +
-    `• .kick (reply to a message)\n` +
-    `• .kick number\n\n` +
-    `*Customize kick message:*\n` +
-    `• .kick set <kick message>\n` +
-    `• .kick off\n\n` +
-    `*Placeholders:*\n` +
-    `{user} = target user(s)\n` +
-    `{by} = admin who kicked\n` +
-    `{group} = group name\n\n` +
-    `*Note:* If no custom kick message is set, default will be used:\n` +
-    `${defaultTemplate}\n\n` +
-    `${current}`
-  );
-}
-
 function TXT(chatId) {
   const lang = getLang(chatId);
   const dict = {
@@ -162,10 +114,7 @@ function TXT(chatId) {
       onlyAdmins: '❌ Only group admins can use the kick command.',
       needTarget: '❌ Mention the user or reply to their message to kick!',
       cantKickMe: "🤖 I can't kick myself.",
-      fail: '❌ Failed to kick user(s)!',
-      setUsage: 'ℹ️ Usage:\n.kick set <message>\nExample:\n.kick set 👢 Kicked: {user}\\n👑 By: {by}',
-      setOk: '✅ Kick message saved.',
-      offOk: '🗑️ Custom kick message removed.'
+      fail: '❌ Failed to kick user(s)!'
     },
     ar: {
       groupOnly: '❌ الأمر ده للجروبات بس.',
@@ -173,10 +122,7 @@ function TXT(chatId) {
       onlyAdmins: '❌ الأمر ده للأدمنية بس.',
       needTarget: '❌ منشن الشخص أو اعمل ريبلاي على رسالته عشان أطرده.',
       cantKickMe: '🤖 مش هقدر أطرد نفسي.',
-      fail: '❌ فشل طرد العضو/الأعضاء!',
-      setUsage: 'ℹ️ الاستخدام:\n.kick set <الرسالة>\nمثال:\n.kick set 👢 تم طرد: {user}\\n👑 بواسطة: {by}',
-      setOk: '✅ تم حفظ رسالة الطرد.',
-      offOk: '🗑️ تم حذف رسالة الطرد المخصصة.'
+      fail: '❌ فشل طرد العضو/الأعضاء!'
     }
   };
   return { lang, T: dict[lang] || dict.en };
@@ -227,52 +173,78 @@ async function kickCommand(sock, message, args = []) {
     }
   }
 
-  const currentCustom = readKickMsg(chatId);
-  const defaultTemplate = getDefaultKickTemplate(lang);
+  // 🔥 KICK ALL
+  if (sub === 'all') {
+    try {
+      await safeReact(sock, chatId, message.key, '⚠️');
 
-  if (!sub) {
-    await safeReact(sock, chatId, message.key, 'ℹ️');
-    await sock.sendMessage(chatId, { text: helpText(lang, defaultTemplate, currentCustom) }, { quoted: message });
-    return;
-  }
+      const meta = await sock.groupMetadata(chatId);
+      const participants = meta.participants || [];
 
-  if (sub === 'set') {
-    const msg = parts.slice(1).join(' ').trim();
-    if (!msg) {
-      await safeReact(sock, chatId, message.key, 'ℹ️');
-      await sock.sendMessage(chatId, { text: T.setUsage }, { quoted: message });
-      return;
+      const admins = participants.filter(p => p.admin).map(p => p.id);
+
+      let toKick = participants
+        .map(p => p.id)
+        .filter(j => !admins.includes(j));
+
+      const botId = sock.user?.id || '';
+      const botPhone = String(botId).split(':')[0];
+      const botJid = botPhone ? `${botPhone}@s.whatsapp.net` : '';
+
+      toKick = toKick.filter(j =>
+        j !== botId &&
+        j !== botJid &&
+        j !== botJid.replace('@s.whatsapp.net', '@lid')
+      );
+
+      if (!toKick.length) {
+        await safeReact(sock, chatId, message.key, 'ℹ️');
+        await sock.sendMessage(chatId, {
+          text: lang === 'ar' ? '❌ لا يوجد أعضاء لطردهم.' : '❌ No members to kick.'
+        }, { quoted: message });
+        return;
+      }
+
+      await safeReact(sock, chatId, message.key, '👢');
+
+      const chunkSize = 10;
+      for (let i = 0; i < toKick.length; i += chunkSize) {
+        const chunk = toKick.slice(i, i + chunkSize);
+        await sock.groupParticipantsUpdate(chatId, chunk, 'remove');
+      }
+
+      const text = await buildKickText(sock, chatId, lang, toKick, senderId);
+
+      await safeReact(sock, chatId, message.key, '✅');
+
+      await sock.sendMessage(
+        chatId,
+        { text, mentions: [...toKick, senderId] },
+        { quoted: message }
+      );
+
+    } catch (err) {
+      console.error('[KICK ALL]', err);
+      await safeReact(sock, chatId, message.key, '❌');
+      await sock.sendMessage(chatId, { text: T.fail }, { quoted: message });
     }
 
-    const ok = writeKickMsg(chatId, msg);
-    await safeReact(sock, chatId, message.key, ok ? '📝' : '❌');
-    await sock.sendMessage(chatId, { text: ok ? T.setOk : T.fail }, { quoted: message });
     return;
   }
 
-  if (sub === 'off') {
-    const ok = removeKickMsg(chatId);
-    await safeReact(sock, chatId, message.key, ok ? '🗑️' : '❌');
-    await sock.sendMessage(chatId, { text: ok ? T.offOk : T.fail }, { quoted: message });
-    return;
-  }
-
+  // 👇 الكيك العادي
   const targets = extractTargets(message, args);
 
   if (!targets.length) {
     await safeReact(sock, chatId, message.key, 'ℹ️');
-    await sock.sendMessage(
-      chatId,
-      { text: `${helpText(lang, defaultTemplate, currentCustom)}\n\n${T.needTarget}` },
-      { quoted: message }
-    );
+    await sock.sendMessage(chatId, { text: T.needTarget }, { quoted: message });
     return;
   }
 
   const botId = sock.user?.id || '';
   const botPhone = String(botId).split(':')[0];
   const botJid = botPhone ? `${botPhone}@s.whatsapp.net` : '';
-  let filtered = targets.filter(j => j !== botId && j !== botJid && j !== botJid.replace('@s.whatsapp.net', '@lid'));
+  let filtered = targets.filter(j => j !== botId && j !== botJid);
 
   if (!filtered.length) {
     await safeReact(sock, chatId, message.key, '🤖');
@@ -285,6 +257,7 @@ async function kickCommand(sock, message, args = []) {
     await sock.groupParticipantsUpdate(chatId, filtered, 'remove');
 
     const text = await buildKickText(sock, chatId, lang, filtered, senderId);
+
     await safeReact(sock, chatId, message.key, '✅');
 
     await sock.sendMessage(
@@ -307,16 +280,12 @@ module.exports = {
     en: '👮‍♂️ Group Admin'
   },
   description: {
-    ar: 'طرد عضو/أعضاء من الجروب، مع دعم تخصيص رسالة الطرد لكل جروب باستخدام placeholders.',
-    en: 'Kicks member(s) from the group, with per-group customizable kick message using placeholders.'
+    ar: 'طرد عضو أو كل الأعضاء ماعدا الأدمنز.',
+    en: 'Kick member(s) or all members except admins.'
   },
-  
   emoji: '👢',
   admin: true,
   owner: false,
   showInMenu: true,
-  exec: kickCommand,
-  run: kickCommand,
-  execute: (sock, message, args) => kickCommand(sock, message, args),
-  kickCommand
+  exec: kickCommand
 };
